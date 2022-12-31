@@ -1,0 +1,65 @@
+{
+  "app": "python3 app.py",
+  "watch": {
+    "include": [
+      "**"
+    ],
+    "exclude": [
+      "README.md",
+      "cdk*.json",
+      "requirements*.txt",
+      "source.bat",
+      "**/__init__.py",
+      "python/__pycache__",
+      "tests"
+    ]
+  },
+  "context": {
+    "@aws-cdk/aws-apigateway:usagePlanKeyOrderInsensitiveId": true,
+    "@aws-cdk/core:stackRelativeExports": true,
+    "@aws-cdk/aws-rds:lowercaseDbIdentifier": true,
+    "@aws-cdk/aws-lambda:recognizeVersionProps": true,
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/aws-cloudfront:defaultSecurityPolicyTLSv1.2_2021": true,
+    "@aws-cdk-containers/ecs-service-extensions:enableDefaultLogDriver": true,
+    "@aws-cdk/aws-ec2:uniqueImdsv2TemplateName": true,
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/aws-iam:minimizePolicies": true,
+    "@aws-cdk/aws-ecs:arnFormatIncludesClusterName": true,
+    "@aws-cdk/core:validateSnapshotRemovalPolicy": true,
+    "@aws-cdk/aws-codepipeline:crossAccountKeyAliasStackSafeResourceName": true,
+    "@aws-cdk/aws-s3:createDefaultLoggingPolicy": true,
+    "@aws-cdk/aws-sns-subscriptions:restrictSqsDescryption": true,
+    "@aws-cdk/aws-apigateway:disableCloudWatchRole": true,
+    "@aws-cdk/core:enablePartitionLiterals": true,
+    "@aws-cdk/core:target-partitions": [
+      "aws",
+      "aws-cn"
+    ],
+    "dev": {
+      "bus-name": "serverless-bus-dev",
+      "rule-name": "custom-event-rule-dev",
+      "event-pattern": "custom-event-pattern-dev",
+      "firehose-name": "sample-stream-dev",
+      "buffering-interval-in-seconds": 120,
+      "buffering-size-in-mb": 128,
+      "firehose-s3-rolename": "firehoses3dev",
+      "eventbus-firehose-rolename": "eventbusfirehosedev",
+      "glue-job-name": "serverless-etl-job-dev",
+      "workers": 5,
+      "worker-type": "G.1X",
+      "glue-script-location": "glue/scripts/",
+      "glue-script-uri": "/glue/scripts/event-bridge-dev-etl.py",
+      "temp-location": "/glue/etl/temp/",
+      "glue-database-location": "/glue/etl/database/",
+      "glue-database-name": "serverless-lake",
+      "glue-table-name": "processed-table",
+      "glue-crawler": "serverless-lake-crawler",
+      "glue-output": "/glue/output/",
+      "glue-job-trigger-name": "scheduled-etl-job-trigger-dev",
+      "glue-job-cron": "cron(0 */1 * * ? *)",
+      "glue-crawler-trigger-name": "crawler-trigger-dev",
+      "glue-script-local-machine": ""
+    }
+  }
+}
