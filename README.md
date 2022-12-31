@@ -2,7 +2,7 @@
 # Serverless Datalake with Amazon EventBridge
 
 ### Architecture
-![architecture](/serverless-datalake.drawio.png?raw=true)
+![architecture](https://user-images.githubusercontent.com/25897220/210151716-5e670221-db78-4681-b711-1ef8d94ea102.png)
 
 <br>
 <br>
@@ -18,17 +18,17 @@ This solution demonstrates how we could build a serverless ETL solution with Ama
 schema using AWS Glue crawler. AWS Glue Jobs run some basic transformations on the incoming raw data. It then compresses, partitions the data and stores it in parquet(columnar) storage. AWS Glue job is configured to run every hour. A successful AWS Glue job completion would trigger the AWS Glue Crawler that in turn would either create a schema on the S3 data or update the schema and other metadata such as newly added/deleted table partitions.
 
 * Glue Workflow
-![alt text](/glue-workflow.png?raw=true)
+<img width="1033" alt="glue-workflow" src="https://user-images.githubusercontent.com/25897220/210151743-399ad0cf-9cfd-47c4-b193-6bf899074a41.png">
 
 * Glue Crawler
-![Crawler](/glue-crawler.png?raw=true)
+<img width="1099" alt="glue-crawler" src="https://user-images.githubusercontent.com/25897220/210151749-c84a909a-df2a-468c-a5c6-37532cb3ce6b.png">
 
 * Datalake Table
-![Table](/glue-table.png?raw=true)
+<img width="1106" alt="glue-table" src="https://user-images.githubusercontent.com/25897220/210151755-048092c5-a53b-4e3f-a46b-2900ab3f8470.png">
 
 * Once the table is created we could query it through Athena and visualize it using Quicksight. <br>
 Athena Query
-![Athena](/athena_query.png?raw=true)
+<img width="1364" alt="athena_query" src="https://user-images.githubusercontent.com/25897220/210151765-0c80f4dc-d909-4597-a5f3-4d4b4897ee97.png">
 
 * This solution also provides a test lambda that generates 500 random events to push to the bus. The lambda is part of the **test_stack.py** nested stack. The lambda should be invoked on demand.
 Test lambda name: **serverless-event-simulator-dev**
