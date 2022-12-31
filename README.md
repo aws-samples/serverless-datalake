@@ -2,7 +2,7 @@
 # Serverless Datalake with Amazon EventBridge
 
 ### Architecture
-![alt text](/serverless-datalake.drawio.png?raw=true)
+![architecture](/serverless-datalake.drawio.png?raw=true)
 
 <br>
 <br>
@@ -21,14 +21,14 @@ schema using AWS Glue crawler. AWS Glue Jobs run some basic transformations on t
 ![alt text](/glue-workflow.png?raw=true)
 
 * Glue Crawler
-![alt text](/glue-crawler.png?raw=true)
+![Crawler](/glue-crawler.png?raw=true)
 
 * Datalake Table
-![alt text](/glue-table.png?raw=true)
+![Table](/glue-table.png?raw=true)
 
 * Once the table is created we could query it through Athena and visualize it using Quicksight. <br>
 Athena Query
-![alt text](/athena_query.png?raw=true)
+![Athena](/athena_query.png?raw=true)
 
 * This solution also provides a test lambda that generates 500 random events to push to the bus. The lambda is part of the **test_stack.py** nested stack. The lambda should be invoked on demand.
 Test lambda name: **serverless-event-simulator-dev**
