@@ -2,7 +2,7 @@
 # Serverless Datalake with Amazon EventBridge
 
 ### Architecture
-* ![alt text](serverless-datalake.drawio.png?raw=true)
+* ![alt text](/serverless-datalake.drawio.png?raw=true)
 
 <br>
 <br>
