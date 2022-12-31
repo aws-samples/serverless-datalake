@@ -1,0 +1,4 @@
+
+.venv
+cdk.out/
+*.pyc
