@@ -57,7 +57,7 @@
       "glue-crawler": "serverless-lake-crawler",
       "glue-output": "/glue/output/",
       "glue-job-trigger-name": "scheduled-etl-job-trigger-dev",
-      "glue-job-cron": "cron(0 */1 * * ? *)",
+      "glue-job-cron": "cron(0/15 * * * ? *)",
       "glue-crawler-trigger-name": "crawler-trigger-dev",
       "glue-script-local-machine": ""
     }
