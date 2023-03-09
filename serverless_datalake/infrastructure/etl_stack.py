@@ -89,30 +89,35 @@ class EtlStack(NestedStack):
                                               )
 
       # Create a Glue cron Trigger ̰
-      job_trigger = _cdk.aws_glue.CfnTrigger(self, f'glue-job-trigger-{env}', name=config_details['glue-job-trigger-name'],
-                               actions=[_cdk.aws_glue.CfnTrigger.ActionProperty(
-                                   job_name=glue_job.name)],
-                               workflow_name=workflow.name,
-                               type='SCHEDULED',
-                               start_on_creation=True,
-                               schedule=config_details['glue-job-cron']
-                               )
+      job_trigger = _cdk.aws_glue.CfnTrigger(self, f'glue-job-trigger-{env}',
+                                name=config_details['glue-job-trigger-name'],
+                                actions=[_cdk.aws_glue.CfnTrigger.ActionProperty(job_name=glue_job.name)],
+                                workflow_name=workflow.name,
+                                type='SCHEDULED',
+                                start_on_creation=True,
+                                schedule=config_details['glue-job-cron'])
+      
+      job_trigger.add_depends_on(glue_job)
+      job_trigger.add_depends_on(glue_crawler)
+      job_trigger.add_depends_on(glue_crawler)
+      job_trigger.add_depends_on(glue_database)
 
       # Create a Glue conditional trigger that triggers the crawler on successful job completion
-      crawler_trigger = _cdk.aws_glue.CfnTrigger(self, f'glue-crawler-trigger-{env}', name=config_details['glue-crawler-trigger-name'],
-                               actions=[_cdk.aws_glue.CfnTrigger.ActionProperty(
-                                   crawler_name=glue_crawler.name)],
-                               workflow_name=workflow.name,
-                               type='CONDITIONAL',
-                               predicate=_cdk.aws_glue.CfnTrigger.PredicateProperty(
-          conditions=[_cdk.aws_glue.CfnTrigger.ConditionProperty(
-              job_name=glue_job.name,
-              logical_operator='EQUALS',
-              state="SUCCEEDED"
-          )]
-      ),
-          start_on_creation=False
-      )
+      crawler_trigger = _cdk.aws_glue.CfnTrigger(self, f'glue-crawler-trigger-{env}',
+                                name=config_details['glue-crawler-trigger-name'],
+                                actions=[_cdk.aws_glue.CfnTrigger.ActionProperty(
+                                crawler_name=glue_crawler.name)],
+                                workflow_name=workflow.name,
+                                type='CONDITIONAL',
+                                predicate=_cdk.aws_glue.CfnTrigger.PredicateProperty(
+                conditions=[_cdk.aws_glue.CfnTrigger.ConditionProperty(
+                job_name=glue_job.name,
+                logical_operator='EQUALS',
+                state="SUCCEEDED"
+            )]
+        ),
+        start_on_creation=True
+    )
 
       #TODO: Create an Athena Workgroup
 
