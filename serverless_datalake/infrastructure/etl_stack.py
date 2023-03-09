@@ -111,7 +111,7 @@ class EtlStack(NestedStack):
               state="SUCCEEDED"
           )]
       ),
-          start_on_creation=True
+          start_on_creation=False
       )
 
       #TODO: Create an Athena Workgroup

@@ -38,58 +38,72 @@ Test lambda name: **serverless-event-simulator-dev**
 This solution could be used to build a datalake for API usage tracking, State Change Notifications, Content based routing and much more.
 
 
-### Setup
+### Setup to execute on AWS Cloudshell
 
-1.  Note: You may need to do a cdk bootstrap if you haven't used cdk before. Link: https://docs.aws.amazon.com/cdk/v2/guide/bootstrapping.html
+1. Create an new IAM user with Admin access
 
-```
-e.g. cdk bootstrap aws://ACCOUNT-NUMBER-1/REGION-1 aws://ACCOUNT-NUMBER-2/REGION-2 ...
+2. Configure your aws cli environment with the access/secret keys of the new admin user using the below command on cloudshell
+   ```
+   $ aws configure
+   ```
 
-cdk bootstrap aws://{your-account-id}/{your-region}
-```
+3. upgrade npm
+    ```
+    $  sudo npm install n stable -g
+    ```
+
+4. Install cdk toolkit if not already done so
+
+    ```
+    $   sudo npm install -g aws-cdk@2.55.1
+    ```
+
+5.  Note: You may need to do a cdk bootstrap if you haven't used cdk before. Link: https://docs.aws.amazon.com/cdk/v2/guide/bootstrapping.html
+
+    ```
+    $   e.g. cdk bootstrap aws://ACCOUNT-NUMBER-1/REGION-1 aws://ACCOUNT-NUMBER-2/REGION-2 ...
+
+    $   e.g -> cdk bootstrap aws://642933501378/us-east-1
+    ```
 <br>
 
-2. install the latest cdk cli on your local machine:
+4. create a python virtualenv:
 ```
-npm install -g aws-cdk 
-```
-
-3. create a python virtualenv:
-```
-$ python3 -m venv .venv
+$  cd serverless-datalake
+$  python3 -m venv .venv
 ```
 
-4. After the init process completes and the virtualenv is created, you can use the following
+5. After the init process completes and the virtualenv is created, you can use the following
 step to activate your virtualenv.
 
 ```
 $ source .venv/bin/activate
 ```
 
-*  If you are a Windows platform, you would activate the virtualenv like this:
+*  (Windows Platfrom)If you are a Windows platform, you would activate the virtualenv like this:
 
 ```
 % .venv\Scripts\activate.bat
 ```
 
-5. Once the virtualenv is activated, you can install the required dependencies.
+6. Once the virtualenv is activated, you can install the required dependencies.
 
 ```
-$ pip install -r requirements.txt
+$  pip install -r requirements.txt
 ```
 
-6. At this point you can now synthesize the CloudFormation template for this code.
+7. At this point you can now synthesize the CloudFormation template for this code.
 
 ```
-$ cdk synth -c environment_name=dev
+$  cdk synth -c environment_name=dev
 ```
 
-7. You can deploy the generated CloudFormation template using the below command
+8. You can deploy the generated CloudFormation template using the below command
 ```
-$ cdk deploy -c environment_name=dev ServerlessDatalakeStack
+$  cdk deploy -c environment_name=dev ServerlessDatalakeStack
 ```
 
-8. Configurations for dev environment are defined in cdk.json. S3 bucket name is created on the fly based on account_id and region in which the cdk is deployed
+9. Configurations for dev environment are defined in cdk.json. S3 bucket name is created on the fly based on account_id and region in which the cdk is deployed
 
-9. After you've successfully deployed this stack on your account, you could test it out by executing the test lambda thats deployed as part of this stack.
+10. After you've successfully deployed this stack on your account, you could test it out by executing the test lambda thats deployed as part of this stack.
 Test lambda name: **serverless-event-simulator-dev** . This lambda will push 500 random events to the event-bus.
