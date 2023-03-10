@@ -26,6 +26,8 @@ class EtlStack(NestedStack):
                                     role_name=f'etlrole{env}', managed_policies=[
           _cdk.aws_iam.ManagedPolicy.from_managed_policy_arn(self, 's3-full-access-etl',
                                                              managed_policy_arn='arn:aws:iam::aws:policy/AmazonS3FullAccess'),
+          _cdk.aws_iam.ManagedPolicy.from_managed_policy_arn(self, 'comprehend-full-access-etl',
+                                                             managed_policy_arn='arn:aws:iam::aws:policy/ComprehendFullAccess'),
           _cdk.aws_iam.ManagedPolicy.from_aws_managed_policy_name(
               "service-role/AWSGlueServiceRole")
       ]
