@@ -20,7 +20,7 @@ pip install -r requirements.txt
 echo "--- CDK synthesize ---"
 cdk synth -c environment_name=dev
 echo "--- CDK deploy ---"
-read -p "Press any key to deploy the Serverless Datalake ..."
+# read -p "Press any key to deploy the Serverless Datalake ..."
 cdk deploy -c environment_name=dev ServerlessDatalakeStack
 echo "Lake deployed successfully"
 aws lambda invoke --function-name serverless-event-simulator-dev --invocation-type Event --cli-binary-format raw-in-base64-out  --payload '{ "name": "sample" }' response.json
