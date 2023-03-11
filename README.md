@@ -40,93 +40,71 @@ This solution could be used to build a datalake for API usage tracking, State Ch
 
 ### Setup to execute on AWS Cloudshell
 
-1. Create an new IAM user(username = LakeAdmin) with Administrator access
+1. Create an new IAM user(username = LakeAdmin) with Administrator access.Enable Console access too
 
 2. Once the user is created. Head to  Security Credentials Tab and generate access/secret key for the new IAM user.
 
-2. Copy access/secret keys for the  newly created IAM User.
+2. Copy access/secret keys for the  newly created IAM User on your local machine.
 
 3. Search for AWS Cloudshell. Configure your aws cli environment with the access/secret keys of the new admin user using the below command on AWS Cloudshell
    ```
    aws configure
    ```
 
-4. upgrade npm
-    ```
-    sudo npm install n stable -g
-    ```
-
-5. Install cdk toolkit if not already done so
-
-    ```
-    sudo npm install -g aws-cdk@2.55.1
-    ```
-
-6.  Note: You may need to do a cdk bootstrap if you haven't used cdk before. Link: https://docs.aws.amazon.com/cdk/v2/guide/bootstrapping.html
-
-    ```
-    Syntax ->  cdk bootstrap aws://ACCOUNT-NUMBER-1/REGION-1 aws://ACCOUNT-NUMBER-2/REGION-2 ...
-
-    example -> cdk bootstrap aws://642933501378/us-east-1
-    ```
-<br>
-
-7. Git Clone the serverless-datalake repository from aws-samples
+4. Git Clone the serverless-datalake repository from aws-samples
    ```
      git clone https://github.com/aws-samples/serverless-datalake.git
    ```
 
-8. create a python virtualenv:
+8. cd serverless-datalake
 ```
 cd serverless-datalake
-python3 -m venv .venv
-```
-
-9. After the init process completes and the virtualenv is created, you can use the following
-step to activate your virtualenv.
 
 ```
-source .venv/bin/activate
+
+9. Fire the bash script that automates the lake creation process.
+```
+sh create_lake.sh
 ```
 
-*  (Windows Platfrom skip if your using CloudShell)If you are a Windows platform, you would activate the virtualenv like this:
-
-```
-% .venv\Scripts\activate.bat
-```
-
-10. Once the virtualenv is activated, you can install the required dependencies.
-
-```
-pip install -r requirements.txt
-```
-
-11. At this point you can now synthesize the CloudFormation template for this code.
-
-```
-cdk synth -c environment_name=dev
-```
-
-12. You can deploy the generated CloudFormation template using the below command
-```
-cdk deploy -c environment_name=dev ServerlessDatalakeStack
-```
-
-13. After you've successfully deployed this stack on your account, you could test it out by executing the test lambda thats deployed as part of this stack.
+10. After you've successfully deployed this stack on your account, you could test it out by executing the test lambda thats deployed as part of this stack.
 Test lambda name: **serverless-event-simulator-dev** . This lambda will push 1K random transaction events to the event-bus.
 
-14. Verify if raw data is available in the s3 bucket under prefix 'raw-data/....'
+11. Verify if raw data is available in the s3 bucket under prefix 'raw-data/....'
 
-15. Verify if the Glue job is running
+12. Verify if the Glue job is running
 
-16. Once the Glue job succeeds, it would trigger a glue crawler that creates a table in our datalake
+13. Once the Glue job succeeds, it would trigger a glue crawler that creates a table in our datalake
 
-17. Head to Athena after the table is created and query the table
+14. Head to Athena after the table is created and query the table
 
-18. Create 3 roles -> cloud-developer / Business-Analyst / Data-engineer
+15. Create 3 roles in IAM with Administrator access -> cloud-developer / cloud-analyst / cloud-data-engineer 
 
-19. Head to Lake formation and assing privileges to these roles
+16. Add inline Permissions to IAM user(LakeAdmin) so that we can switch roles
+```
+ {
+  "Version": "2012-10-17",
+  "Statement": {
+    "Effect": "Allow",
+    "Action": "sts:AssumeRole",
+    "Resource": "arn:aws:iam::account-id:role/cloud-*"
+  }
+}
+```
 
-20. Swtich roles and head to Athena and test Column level security
+16. Head to Amazon Lake formation and under Tables, select our table -> Actions -> Grant privileges to cloud-developer role
 
+17. Add column level security
+
+17. In an incognito window, login as LakeAdmin user.
+
+18. Switch roles and head to Athena and test Column level security.
+
+19. Now in Amazon Lake Formation (Back to our main window), create a Data Filter and add the below 
+          a. Under Row Filter expression add ->  country='IN'
+          b. Include columns you wish to view for that role.
+          
+    https://docs.aws.amazon.com/lake-formation/latest/dg/data-filters-about.html
+    
+20. Head back to the incognito window and fire the select command. Confirm if RLS and CLS are correctly working for that role.
 21. Configurations for dev environment are defined in cdk.json. S3 bucket name is created on the fly based on account_id and region in which the cdk is deployed
