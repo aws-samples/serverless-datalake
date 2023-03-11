@@ -102,9 +102,12 @@ Test lambda name: **serverless-event-simulator-dev** . This lambda will push 1K 
 
 19. Now in Amazon Lake Formation (Back to our main window), create a Data Filter and add the below 
           a. Under Row Filter expression add ->  country='IN'
+             a.1 https://docs.aws.amazon.com/lake-formation/latest/dg/data-filters-about.html
           b. Include columns you wish to view for that role.
-          
-    https://docs.aws.amazon.com/lake-formation/latest/dg/data-filters-about.html
+       
+       <img width="495" alt="Screenshot 2023-03-12 at 3 30 51 AM" src="https://user-images.githubusercontent.com/25897220/224513414-a123c821-39cf-49a1-9428-5f09460a10c9.png">
+  
+    
     
 20. Head back to the incognito window and fire the select command. Confirm if RLS and CLS are correctly working for that role.
 21. Configurations for dev environment are defined in cdk.json. S3 bucket name is created on the fly based on account_id and region in which the cdk is deployed
