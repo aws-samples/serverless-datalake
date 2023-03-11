@@ -93,6 +93,8 @@ Test lambda name: **serverless-event-simulator-dev** . This lambda will push 1K 
 ```
 
 16. Head to Amazon Lake formation and under Tables, select our table -> Actions -> Grant privileges to cloud-developer role
+    
+<img width="1276" alt="Screenshot 2023-03-12 at 3 35 08 AM" src="https://user-images.githubusercontent.com/25897220/224513458-63bab220-0ce5-406e-b194-07e4159c2668.png">
 
 17. Add column level security
 
