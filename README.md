@@ -93,16 +93,19 @@ Test lambda name: **serverless-event-simulator-dev** . This lambda will push 1K 
 ```
 
 16. Head to Amazon Lake formation and under Tables, select our table -> Actions -> Grant privileges to cloud-developer role
+    16.a: Add column level security
+
+ <img width="1276" alt="Screenshot 2023-03-12 at 3 36 29 AM" src="https://user-images.githubusercontent.com/25897220/224513478-787a8d10-e640-4ca4-95b0-7bb0099e1b32.png">
+
+17. View Permissions for the table and revoke IAMAllowedPrincipals. https://docs.aws.amazon.com/lake-formation/latest/dg/upgrade-glue-lake-formation-background.html
     
 <img width="1276" alt="Screenshot 2023-03-12 at 3 35 08 AM" src="https://user-images.githubusercontent.com/25897220/224513458-63bab220-0ce5-406e-b194-07e4159c2668.png">
 
-17. Add column level security
+18. In an incognito window, login as LakeAdmin user.
 
-17. In an incognito window, login as LakeAdmin user.
+19. Switch roles and head to Athena and test Column level security.
 
-18. Switch roles and head to Athena and test Column level security.
-
-19. Now in Amazon Lake Formation (Back to our main window), create a Data Filter and add the below 
+20. Now in Amazon Lake Formation (Back to our main window), create a Data Filter and add the below 
           a. Under Row Filter expression add ->  country='IN'
              a.1 https://docs.aws.amazon.com/lake-formation/latest/dg/data-filters-about.html
           b. Include columns you wish to view for that role.
@@ -111,5 +114,5 @@ Test lambda name: **serverless-event-simulator-dev** . This lambda will push 1K 
   
     
     
-20. Head back to the incognito window and fire the select command. Confirm if RLS and CLS are correctly working for that role.
-21. Configurations for dev environment are defined in cdk.json. S3 bucket name is created on the fly based on account_id and region in which the cdk is deployed
+21. Head back to the incognito window and fire the select command. Confirm if RLS and CLS are correctly working for that role.
+22. Configurations for dev environment are defined in cdk.json. S3 bucket name is created on the fly based on account_id and region in which the cdk is deployed
