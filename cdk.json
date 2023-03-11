@@ -46,7 +46,7 @@
       "firehose-s3-rolename": "firehoses3dev",
       "eventbus-firehose-rolename": "eventbusfirehosedev",
       "glue-job-name": "serverless-etl-job-dev",
-      "workers": 5,
+      "workers": 7,
       "worker-type": "G.1X",
       "glue-script-location": "glue/scripts/",
       "glue-script-uri": "/glue/scripts/event-bridge-dev-etl.py",

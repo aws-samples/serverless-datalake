@@ -101,7 +101,6 @@ class EtlStack(NestedStack):
       
       job_trigger.add_depends_on(glue_job)
       job_trigger.add_depends_on(glue_crawler)
-      job_trigger.add_depends_on(glue_crawler)
       job_trigger.add_depends_on(glue_database)
 
       # Create a Glue conditional trigger that triggers the crawler on successful job completion
@@ -119,7 +118,14 @@ class EtlStack(NestedStack):
             )]
         ),
         start_on_creation=True
-    )
+      )
+
+      crawler_trigger.add_depends_on(glue_job)
+      crawler_trigger.add_depends_on(glue_crawler)
+      crawler_trigger.add_depends_on(glue_database)
+      
+
+
 
       #TODO: Create an Athena Workgroup
 
