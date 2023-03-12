@@ -28,7 +28,7 @@ def handler(event, context):
         "lastName": "G"
     }
 
-    for i in range(0, 10000):
+    for i in range(0, 1000):
         sample_json["amount"]["value"] = random.randint(10, 5000)
         sample_json["amount"]["currency"] = random.choice(currencies)
         location = random.choice(locations).split('-')

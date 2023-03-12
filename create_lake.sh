@@ -24,3 +24,12 @@ echo "--- CDK deploy ---"
 cdk deploy -c environment_name=dev ServerlessDatalakeStack
 echo "Lake deployed successfully"
 aws lambda invoke --function-name serverless-event-simulator-dev --invocation-type Event --cli-binary-format raw-in-base64-out  --payload '{ "name": "sample" }' response.json
+aws lambda invoke --function-name serverless-event-simulator-dev --invocation-type Event --cli-binary-format raw-in-base64-out  --payload '{ "name": "sample" }' response.json
+aws lambda invoke --function-name serverless-event-simulator-dev --invocation-type Event --cli-binary-format raw-in-base64-out  --payload '{ "name": "sample" }' response.json
+aws lambda invoke --function-name serverless-event-simulator-dev --invocation-type Event --cli-binary-format raw-in-base64-out  --payload '{ "name": "sample" }' response.json
+aws lambda invoke --function-name serverless-event-simulator-dev --invocation-type Event --cli-binary-format raw-in-base64-out  --payload '{ "name": "sample" }' response.json
+aws lambda invoke --function-name serverless-event-simulator-dev --invocation-type Event --cli-binary-format raw-in-base64-out  --payload '{ "name": "sample" }' response.json
+aws lambda invoke --function-name serverless-event-simulator-dev --invocation-type Event --cli-binary-format raw-in-base64-out  --payload '{ "name": "sample" }' response.json
+aws lambda invoke --function-name serverless-event-simulator-dev --invocation-type Event --cli-binary-format raw-in-base64-out  --payload '{ "name": "sample" }' response.json
+aws lambda invoke --function-name serverless-event-simulator-dev --invocation-type Event --cli-binary-format raw-in-base64-out  --payload '{ "name": "sample" }' response.json
+aws lambda invoke --function-name serverless-event-simulator-dev --invocation-type Event --cli-binary-format raw-in-base64-out  --payload '{ "name": "sample" }' response.json
