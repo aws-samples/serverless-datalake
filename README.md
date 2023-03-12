@@ -42,6 +42,9 @@ This solution could be used to build a datalake for API usage tracking, State Ch
 
 1. Create an new IAM user(username = LakeAdmin) with Administrator access.Enable Console access too
 
+   <img width="1203" alt="Screenshot 2023-03-12 at 6 20 15 PM" src="https://user-images.githubusercontent.com/25897220/224545837-aaecc86f-e605-40c5-8590-61ec12779ad2.png">
+
+   
 2. Once the user is created. Head to  Security Credentials Tab and generate access/secret key for the new IAM user.
    
    <img width="1020" alt="Screenshot 2023-03-12 at 6 18 34 PM" src="https://user-images.githubusercontent.com/25897220/224545710-4f67c96d-fc15-4c23-9a63-26ee649d0093.png"> 
