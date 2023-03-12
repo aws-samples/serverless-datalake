@@ -43,13 +43,20 @@ This solution could be used to build a datalake for API usage tracking, State Ch
 1. Create an new IAM user(username = LakeAdmin) with Administrator access.Enable Console access too
 
 2. Once the user is created. Head to  Security Credentials Tab and generate access/secret key for the new IAM user.
+   
+   <img width="1020" alt="Screenshot 2023-03-12 at 6 18 34 PM" src="https://user-images.githubusercontent.com/25897220/224545710-4f67c96d-fc15-4c23-9a63-26ee649d0093.png"> 
 
 2. Copy access/secret keys for the  newly created IAM User on your local machine.
+
+  <img width="1029" alt="Screenshot 2023-03-12 at 6 17 29 PM" src="https://user-images.githubusercontent.com/25897220/224545667-06d412a3-0839-4a3f-b00d-1cb6f543cb94.png">
+
 
 3. Search for AWS Cloudshell. Configure your aws cli environment with the access/secret keys of the new admin user using the below command on AWS Cloudshell
    ```
    aws configure
    ```
+   <img width="577" alt="Screenshot 2023-03-12 at 6 16 56 PM" src="https://user-images.githubusercontent.com/25897220/224545595-988b3cc8-1503-419d-b2fd-76f2367cc109.png">
+
 
 4. Git Clone the serverless-datalake repository from aws-samples
    ```
