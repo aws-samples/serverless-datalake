@@ -45,22 +45,24 @@ def detect_sensitive_info(r):
             r[entity_masked] = "#######################"
     except:
         print ("DEBUG:",sys.exc_info())
-
-    client_pii = boto3.client('comprehend', region_name=get_region_name())
     
-    try:
-        response = client_pii.detect_pii_entities(
-            Text = metadata,
-            LanguageCode = 'en'
-        )
-        clean_text = metadata
-        # reversed to not modify the offsets of other entities when substituting
-        for NER in reversed(response['Entities']):
-            clean_text = clean_text[:NER['BeginOffset']] + NER['Type'] + clean_text[NER['EndOffset']:]
-        print(clean_text)
-        r['trnx_msg_masked'] = clean_text
-    except:
-        print ("DEBUG:",sys.exc_info())
+    ''' Uncomment to mask unstructured text through Amazon Comprehend '''
+    ''' Can result in extendend Glue Job times'''
+    # client_pii = boto3.client('comprehend', region_name=get_region_name())
+    
+    # try:
+    #     response = client_pii.detect_pii_entities(
+    #         Text = metadata,
+    #         LanguageCode = 'en'
+    #     )
+    #     clean_text = metadata
+    #     # reversed to not modify the offsets of other entities when substituting
+    #     for NER in reversed(response['Entities']):
+    #         clean_text = clean_text[:NER['BeginOffset']] + NER['Type'] + clean_text[NER['EndOffset']:]
+    #     print(clean_text)
+    #     r['trnx_msg_masked'] = clean_text
+    # except:
+    #     print ("DEBUG:",sys.exc_info())
 
     return r
 
