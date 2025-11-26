@@ -49,8 +49,5 @@ htmlcov/
 
 # Logs
 *.log
-*.md
-*.md
 *.zip
-*.md
 frontend/src/config/config.ts
