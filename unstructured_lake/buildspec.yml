@@ -1,0 +1,25 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 22
+      python: 3.12
+    commands:
+      - echo Installing dependencies...
+      - npm install -g aws-cdk@2.1031.2
+      - pip install -r requirements.txt
+      
+  build:
+    commands:
+      - echo Running builder script...
+      - chmod +x builder-nointeractive.sh
+      - ./builder-nointeractive.sh prod
+  
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      
+artifacts:
+  files:
+    - '**/*'

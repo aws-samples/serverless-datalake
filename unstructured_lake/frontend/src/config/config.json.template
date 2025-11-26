@@ -1,0 +1,7 @@
+{
+  "region": "us-east-1",
+  "userPoolId": "REPLACE_WITH_USER_POOL_ID",
+  "clientId": "REPLACE_WITH_CLIENT_ID",
+  "apiUrl": "REPLACE_WITH_API_URL",
+  "websocketUrl": "REPLACE_WITH_WEBSOCKET_URL"
+}

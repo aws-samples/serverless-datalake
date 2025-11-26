@@ -1,0 +1,2 @@
+# Note: Pillow is already included in the pypdf Lambda layer
+# No need to add it here

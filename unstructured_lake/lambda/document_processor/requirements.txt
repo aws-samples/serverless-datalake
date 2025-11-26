@@ -1,0 +1,7 @@
+# Document Processing Lambda Requirements
+# Note: PyPDF2 and boto3 are provided via Lambda layers
+
+# These dependencies are included in the Lambda layers:
+# PyPDF2>=3.0.0
+# boto3>=1.34.0
+# botocore>=1.34.0

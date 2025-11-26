@@ -1,0 +1,4 @@
+# AWS SDK for Python
+boto3>=1.34.0
+
+# No additional dependencies needed - using boto3 layer

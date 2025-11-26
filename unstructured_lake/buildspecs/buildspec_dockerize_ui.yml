@@ -1,0 +1,174 @@
+version: 0.2
+
+# BuildSpec for building and deploying the React UI to AppRunner
+# This buildspec builds the React application, creates a Docker image,
+# pushes it to ECR, and triggers AppRunner deployment
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+    commands:
+      - echo "Installing build dependencies..."
+      - npm --version
+      - node --version
+      
+  pre_build:
+    commands:
+      - echo "Build started on `date`"
+      - echo "Building React UI for AppRunner deployment"
+      - echo "Project name - $PROJECT_NAME"
+      - echo "Environment - $ENV_NAME"
+      - echo "AWS Region - $AWS_REGION"
+      - echo "ECR Repository URI - $ECR_REPOSITORY_URI"
+      - echo "AppRunner Service ARN - $APPRUNNER_SERVICE_ARN"
+      
+      # Log in to Amazon ECR
+      - echo "Logging in to Amazon ECR..."
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URI
+      
+      # Set image tag with timestamp
+      - export IMAGE_TAG=$(date +%Y%m%d-%H%M%S)
+      - echo "Image tag - $IMAGE_TAG"
+      
+  build:
+    commands:
+      - echo "========================================="
+      - echo "Installing jq for configuration generation..."
+      - echo "========================================="
+      - sudo apt-get update
+      - pwd
+      - ls
+      - sudo apt-get install -y jq
+      
+      - echo "========================================="
+      - echo "Creating environment configuration..."
+      - echo "========================================="
+      
+      # Navigate to frontend directory
+      - cd frontend
+      - ls
+      - pwd
+      
+      # Debug package.json and lock file
+      - echo "Checking package.json and package-lock.json..."
+      - ls -la package*
+      - echo "Node and npm versions:"
+      - node --version
+      - npm --version
+      - echo "Package.json contents:"
+      - cat package.json
+      
+      # Create environment configuration using jq
+      - echo "Generating config.json with environment variables..."
+      - echo "Variables Region:$AWS_REGION, UserPoolId:$USER_POOL_ID, ClientId:$USER_POOL_CLIENT_ID, API URL:$REST_API_URL, WebSocket URL:$WEBSOCKET_URL"
+      
+      # Create config directory and remove existing config files if they exist
+      - mkdir -p src/config
+      - rm -f src/config/config.json
+      
+      # Create config.json using jq with all required environment variables
+      - |
+        jq -n \
+          --arg region "$AWS_REGION" \
+          --arg userPoolId "$USER_POOL_ID" \
+          --arg clientId "$USER_POOL_CLIENT_ID" \
+          --arg apiUrl "$REST_API_URL" \
+          --arg websocketUrl "$WEBSOCKET_URL" \
+          '{
+            region: $region,
+            userPoolId: $userPoolId,
+            clientId: $clientId,
+            apiUrl: $apiUrl,
+            websocketUrl: $websocketUrl
+          }' > src/config/config.json
+      
+      - echo "Generated config.json:"
+      - cat src/config/config.json
+      
+      - echo "========================================="
+      - echo "Building React application..."
+      - echo "========================================="
+      
+      # Install dependencies
+      - echo "Installing npm dependencies..."
+      - echo "Clearing npm cache..."
+      - npm cache clean --force
+      - echo "Setting npm registry to default..."
+      - npm config set registry https://registry.npmjs.org/
+      - echo "Running npm ci with verbose logging..."
+      - |
+        if ! npm ci --verbose --no-audit --no-fund; then
+          echo "npm ci failed, checking error details..."
+          echo "Trying with legacy peer deps..."
+          if ! npm ci --verbose --no-audit --no-fund --legacy-peer-deps; then
+            echo "npm ci with legacy-peer-deps failed, trying npm install as fallback..."
+            rm -rf node_modules package-lock.json
+            npm install --no-audit --no-fund --legacy-peer-deps
+          fi
+        fi
+      
+      # Build React application
+      - echo "Building React app with Vite..."
+      - npm run build
+      
+      # Verify build output
+      - echo "Build output size:"
+      - du -sh dist
+      - ls -la dist
+      
+      # Build Docker image
+      - echo "========================================="
+      - echo "Building Docker image..."
+      - echo "========================================="
+      - |
+        if docker build -t $PROJECT_NAME-ui:$IMAGE_TAG .; then
+          docker tag $PROJECT_NAME-ui:$IMAGE_TAG $ECR_REPOSITORY_URI:$IMAGE_TAG
+          docker tag $PROJECT_NAME-ui:$IMAGE_TAG $ECR_REPOSITORY_URI:latest
+          echo "Docker image built successfully:"
+          docker images | grep $PROJECT_NAME-ui
+          echo "BUILD_SUCCESS=true" >> $CODEBUILD_SRC_DIR/build_status.env
+        else
+          echo "Docker build failed!"
+          echo "BUILD_SUCCESS=false" >> $CODEBUILD_SRC_DIR/build_status.env
+          exit 1
+        fi
+      
+  post_build:
+    commands:
+      - echo "========================================="
+      - echo "Post-build phase started..."
+      - echo "========================================="
+      - echo "Pushing Docker image to ECR..."
+      
+      # Push Docker image to ECR
+      - docker push $ECR_REPOSITORY_URI:$IMAGE_TAG
+      - docker push $ECR_REPOSITORY_URI:latest
+      
+      - echo "Docker image pushed successfully:"
+      - echo "  $ECR_REPOSITORY_URI:$IMAGE_TAG"
+      - echo "  $ECR_REPOSITORY_URI:latest"  
+      - echo "========================================="
+      - echo "Build completed on `date`"
+      - echo "========================================="
+      
+      # Output deployment information (create in root directory for artifacts)
+      - cd $CODEBUILD_SRC_DIR
+      - |
+        echo "{
+          \"image_tag\": \"$IMAGE_TAG\",
+          \"ecr_repository_uri\": \"$ECR_REPOSITORY_URI\",
+          \"image_uri\": \"$ECR_REPOSITORY_URI:$IMAGE_TAG\",
+          \"latest_uri\": \"$ECR_REPOSITORY_URI:latest\",
+          \"build_timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+        }" > deployment_info.json
+      - cat deployment_info.json
+
+artifacts:
+  files:
+    - deployment_info.json
+  name: ui-deployment-artifacts
+
+cache:
+  paths:
+    - 'frontend/node_modules/**/*'

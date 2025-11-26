@@ -1,0 +1,119 @@
+version: 0.2
+
+# Consolidated BuildSpec for creating Lambda Layers (x86_64 only)
+# This buildspec creates Lambda layers for pypdf and boto3 packages
+# Built for x86_64 architecture only
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+    commands:
+      - echo "Installing build dependencies..."
+      - pip install --upgrade pip setuptools wheel
+      
+  pre_build:
+    commands:
+      - echo "Build started on `date`"
+      - echo "Building Lambda layers for x86_64 architecture"
+      - echo "Project name - $PROJECT_NAME"
+      - echo "Environment - $ENV_NAME"
+      - echo "AWS Region - $AWS_REGION"
+      - echo "AWS Account - $AWS_ACCOUNT_ID"
+      
+  build:
+    commands:
+      # ========================================
+      # Build pypdf Layer (x86_64 only)
+      # ========================================
+      - echo "========================================="
+      - echo "Building pypdf layer..."
+      - echo "========================================="
+      
+      # Build pypdf x86_64 layer with image support
+      - echo "Building pypdf x86_64 layer..."
+      - mkdir -p pypdf-layer-x86_64/python
+      
+      # Install Python packages (pypdf with image support and Pillow)
+      - pip install --target pypdf-layer-x86_64/python 'pypdf[image]' --platform manylinux2014_x86_64 --only-binary=':all:' --python-version 3.12
+      - pip install -U --target pypdf-layer-x86_64/python Pillow --platform manylinux2014_x86_64 --only-binary=':all:' --python-version 3.12
+      
+      # Create zip
+      - cd pypdf-layer-x86_64
+      - zip -r ../pypdf-layer-x86_64.zip python
+      - cd ..
+      - echo "pypdf x86_64 layer size - $(du -h pypdf-layer-x86_64.zip | cut -f1)"
+      
+      # Publish pypdf x86_64 layer
+      - echo "Publishing pypdf x86_64 layer version..."
+      - PYPDF_LAYER_VERSION=$(aws lambda publish-layer-version --layer-name "${PROJECT_NAME}-pypdf-layer-${ENV_NAME}-x86-64" --description "pypdf and Pillow for PDF/image processing (x86_64)" --zip-file fileb://pypdf-layer-x86_64.zip --compatible-runtimes python3.12 --compatible-architectures x86_64 --region $AWS_REGION --query 'Version' --output text)
+      - echo "Published pypdf x86_64 layer version - $PYPDF_LAYER_VERSION"
+      
+      # ========================================
+      # Build boto3 Layer (x86_64 only)
+      # ========================================
+      - echo "========================================="
+      - echo "Building boto3 layer with S3 Vectors support..."
+      - echo "========================================="
+      - echo "Checking latest boto3 version..."
+      - pip index versions boto3 | head -n 1
+      
+      # Build boto3 x86_64 layer
+      - echo "Building boto3 x86_64 layer..."
+      - mkdir -p boto3-layer-x86_64/python
+      - pip install --target boto3-layer-x86_64/python --upgrade boto3 botocore --platform manylinux2014_x86_64 --only-binary=':all:' --python-version 3.12
+      - cd boto3-layer-x86_64
+      - zip -r ../boto3-layer-x86_64.zip python
+      - cd ..
+      - echo "boto3 x86_64 layer size - $(du -h boto3-layer-x86_64.zip | cut -f1)"
+      
+      # Publish boto3 x86_64 layer
+      - echo "Publishing boto3 x86_64 layer version..."
+      - BOTO3_LAYER_VERSION=$(aws lambda publish-layer-version --layer-name "${PROJECT_NAME}-boto3-layer-${ENV_NAME}-x86-64" --description "Latest boto3 with S3 Vectors API support (x86_64)" --zip-file fileb://boto3-layer-x86_64.zip --compatible-runtimes python3.12 python3.11 python3.10 --compatible-architectures x86_64 --region $AWS_REGION --query 'Version' --output text)
+      - echo "Published boto3 x86_64 layer version - $BOTO3_LAYER_VERSION"
+      
+      # ========================================
+      # Build LangChain Layer (x86_64 only)
+      # ========================================
+      - echo "========================================="
+      - echo "Building LangChain layer for text splitting..."
+      - echo "========================================="
+      
+      # Build LangChain x86_64 layer
+      - echo "Building LangChain x86_64 layer..."
+      - mkdir -p langchain-layer-x86_64/python
+      - pip install --target langchain-layer-x86_64/python langchain-text-splitters --platform manylinux2014_x86_64 --only-binary=':all:' --python-version 3.12
+      - cd langchain-layer-x86_64
+      - zip -r ../langchain-layer-x86_64.zip python
+      - cd ..
+      - echo "LangChain x86_64 layer size - $(du -h langchain-layer-x86_64.zip | cut -f1)"
+      
+      # Publish LangChain x86_64 layer
+      - echo "Publishing LangChain x86_64 layer version..."
+      - LANGCHAIN_LAYER_VERSION=$(aws lambda publish-layer-version --layer-name "${PROJECT_NAME}-langchain-layer-${ENV_NAME}-x86-64" --description "LangChain text splitters for document chunking (x86_64)" --zip-file fileb://langchain-layer-x86_64.zip --compatible-runtimes python3.12 python3.11 python3.10 --compatible-architectures x86_64 --region $AWS_REGION --query 'Version' --output text)
+      - echo "Published LangChain x86_64 layer version - $LANGCHAIN_LAYER_VERSION"
+      
+  post_build:
+    commands:
+      - echo "========================================="
+      - echo "Build completed on `date`"
+      - echo "========================================="
+      - echo ""
+      - echo "Layer ARNs (x86_64 only):"
+      - echo "  pypdf - arn:aws:lambda:${AWS_REGION}:${AWS_ACCOUNT_ID}:layer:${PROJECT_NAME}-pypdf-layer-${ENV_NAME}-x86-64:${PYPDF_LAYER_VERSION}"
+      - echo "  boto3 - arn:aws:lambda:${AWS_REGION}:${AWS_ACCOUNT_ID}:layer:${PROJECT_NAME}-boto3-layer-${ENV_NAME}-x86-64:${BOTO3_LAYER_VERSION}"
+      - echo "  langchain - arn:aws:lambda:${AWS_REGION}:${AWS_ACCOUNT_ID}:layer:${PROJECT_NAME}-langchain-layer-${ENV_NAME}-x86-64:${LANGCHAIN_LAYER_VERSION}"
+      - echo ""
+      - echo '{"pypdf":{"layer_arn":"arn:aws:lambda:'${AWS_REGION}':'${AWS_ACCOUNT_ID}':layer:'${PROJECT_NAME}'-pypdf-layer-'${ENV_NAME}'-x86-64:'${PYPDF_LAYER_VERSION}'","layer_version":"'${PYPDF_LAYER_VERSION}'"},"boto3":{"layer_arn":"arn:aws:lambda:'${AWS_REGION}':'${AWS_ACCOUNT_ID}':layer:'${PROJECT_NAME}'-boto3-layer-'${ENV_NAME}'-x86-64:'${BOTO3_LAYER_VERSION}'","layer_version":"'${BOTO3_LAYER_VERSION}'"},"langchain":{"layer_arn":"arn:aws:lambda:'${AWS_REGION}':'${AWS_ACCOUNT_ID}':layer:'${PROJECT_NAME}'-langchain-layer-'${ENV_NAME}'-x86-64:'${LANGCHAIN_LAYER_VERSION}'","layer_version":"'${LANGCHAIN_LAYER_VERSION}'"}}' > layer_info.json
+      - cat layer_info.json
+
+artifacts:
+  files:
+    - pypdf-layer-x86_64.zip
+    - boto3-layer-x86_64.zip
+    - langchain-layer-x86_64.zip
+    - layer_info.json
+  name: lambda-layers-artifacts
+
+cache:
+  paths:
+    - '/root/.cache/pip/**/*'

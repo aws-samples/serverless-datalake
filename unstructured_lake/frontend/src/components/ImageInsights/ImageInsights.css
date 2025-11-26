@@ -1,0 +1,498 @@
+.image-insights-container {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.image-insights-header {
+  margin-bottom: 2rem;
+}
+
+.image-insights-header h2 {
+  font-size: 2rem;
+  font-weight: 600;
+  color: #1a202c;
+  margin-bottom: 0.5rem;
+}
+
+.image-insights-header p {
+  color: #718096;
+  font-size: 1rem;
+}
+
+/* Features Info Section */
+.features-info {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 0.75rem;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  color: white;
+}
+
+.features-info h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+}
+
+.feature-item {
+  display: flex;
+  gap: 1rem;
+  background-color: rgba(255, 255, 255, 0.1);
+  padding: 1.25rem;
+  border-radius: 0.5rem;
+  backdrop-filter: blur(10px);
+  transition: transform 0.2s, background-color 0.2s;
+}
+
+.feature-item:hover {
+  transform: translateY(-2px);
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.feature-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.feature-content h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem 0;
+  color: white;
+}
+
+.feature-content p {
+  font-size: 0.875rem;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.5;
+}
+
+.image-insights-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+
+@media (max-width: 1024px) {
+  .image-insights-content {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Upload Section */
+.upload-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.image-upload-area {
+  border: 2px dashed #cbd5e0;
+  border-radius: 0.5rem;
+  padding: 2rem;
+  text-align: center;
+  background-color: #f7fafc;
+  transition: all 0.3s ease;
+}
+
+.image-upload-area:hover {
+  border-color: #4299e1;
+  background-color: #ebf8ff;
+}
+
+.upload-label {
+  cursor: pointer;
+  display: block;
+}
+
+.file-input {
+  display: none;
+}
+
+.upload-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.upload-icon {
+  width: 3rem;
+  height: 3rem;
+  color: #4299e1;
+}
+
+.upload-placeholder p {
+  font-size: 1rem;
+  font-weight: 500;
+  color: #2d3748;
+  margin: 0;
+}
+
+.upload-placeholder span {
+  font-size: 0.875rem;
+  color: #718096;
+}
+
+.image-preview {
+  position: relative;
+}
+
+.image-preview img {
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: 0.5rem;
+  object-fit: contain;
+}
+
+.clear-button {
+  margin-top: 1rem;
+  padding: 0.5rem 1rem;
+  background-color: #e53e3e;
+  color: white;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background-color 0.2s;
+}
+
+.clear-button:hover {
+  background-color: #c53030;
+}
+
+/* Info Tip */
+.info-tip {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem;
+  background-color: #ebf8ff;
+  border-left: 4px solid #4299e1;
+  border-radius: 0.375rem;
+  align-items: flex-start;
+}
+
+.tip-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.tip-content {
+  font-size: 0.875rem;
+  color: #2c5282;
+  line-height: 1.5;
+}
+
+.tip-content strong {
+  color: #2b6cb0;
+  font-weight: 600;
+}
+
+/* Prompt Section */
+.prompt-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.prompt-section label {
+  font-weight: 500;
+  color: #2d3748;
+  font-size: 0.875rem;
+}
+
+.prompt-section textarea {
+  padding: 0.75rem;
+  border: 1px solid #cbd5e0;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-family: inherit;
+  resize: vertical;
+  transition: border-color 0.2s;
+}
+
+.prompt-section textarea:focus {
+  outline: none;
+  border-color: #4299e1;
+  box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+}
+
+.prompt-section textarea:disabled {
+  background-color: #f7fafc;
+  cursor: not-allowed;
+}
+
+/* Analyze Button */
+.analyze-button {
+  padding: 0.75rem 1.5rem;
+  background-color: #4299e1;
+  color: white;
+  border: none;
+  border-radius: 0.375rem;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.analyze-button:hover:not(:disabled) {
+  background-color: #3182ce;
+}
+
+.analyze-button:disabled {
+  background-color: #cbd5e0;
+  cursor: not-allowed;
+}
+
+/* Error Message */
+.error-message {
+  padding: 0.75rem;
+  background-color: #fed7d7;
+  color: #c53030;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+}
+
+/* Results Section */
+.results-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.results-section h3 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1a202c;
+  margin-bottom: 0.5rem;
+}
+
+.result-card {
+  background-color: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.result-card h4 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 1rem;
+}
+
+/* Status Badges */
+.status-badge {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: 0.75rem;
+}
+
+.status-badge.valid {
+  background-color: #c6f6d5;
+  color: #22543d;
+}
+
+.status-badge.invalid {
+  background-color: #fed7d7;
+  color: #742a2a;
+}
+
+.status-badge.suspicious {
+  background-color: #feebc8;
+  color: #7c2d12;
+}
+
+.status-badge.clean {
+  background-color: #c6f6d5;
+  color: #22543d;
+}
+
+.status-badge.detected {
+  background-color: #bee3f8;
+  color: #2c5282;
+}
+
+.status-badge.not-detected {
+  background-color: #e2e8f0;
+  color: #4a5568;
+}
+
+/* Insights Grid */
+.insights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.insight-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.insight-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.insight-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #718096;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.insight-value {
+  font-size: 1rem;
+  color: #2d3748;
+  font-weight: 500;
+}
+
+.details-list {
+  margin: 0.5rem 0 0 1.5rem;
+  padding: 0;
+}
+
+.details-list li {
+  margin-bottom: 0.25rem;
+  color: #4a5568;
+}
+
+/* Confidence Bar */
+.confidence-bar {
+  margin-top: 1rem;
+}
+
+.confidence-bar span {
+  display: block;
+  font-size: 0.875rem;
+  color: #4a5568;
+  margin-bottom: 0.5rem;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 0.5rem;
+  background-color: #e2e8f0;
+  border-radius: 0.25rem;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background-color: #48bb78;
+  transition: width 0.3s ease;
+}
+
+/* Indicators */
+.indicators {
+  margin-top: 1rem;
+}
+
+.indicators strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #2d3748;
+}
+
+.indicators ul {
+  margin: 0.5rem 0 0 1.5rem;
+  padding: 0;
+}
+
+.indicators li {
+  margin-bottom: 0.25rem;
+  color: #c53030;
+}
+
+/* QR Info */
+.qr-info {
+  margin-top: 1rem;
+}
+
+.qr-info p {
+  margin: 0.5rem 0;
+  color: #4a5568;
+  font-size: 0.875rem;
+}
+
+.qr-data {
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: #f7fafc;
+  border-radius: 0.375rem;
+}
+
+.qr-data strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #2d3748;
+}
+
+.qr-data pre {
+  margin: 0;
+  padding: 0.5rem;
+  background-color: #edf2f7;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  color: #2d3748;
+  overflow-x: auto;
+}
+
+/* QR Code Image Preview */
+.qr-image-preview {
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: #f7fafc;
+  border-radius: 0.375rem;
+  text-align: center;
+}
+
+.qr-image-preview strong {
+  display: block;
+  margin-bottom: 0.75rem;
+  color: #2d3748;
+  font-size: 0.875rem;
+}
+
+.qr-code-image {
+  max-width: 300px;
+  max-height: 300px;
+  border: 2px solid #cbd5e0;
+  border-radius: 0.375rem;
+  padding: 0.5rem;
+  background-color: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  image-rendering: pixelated; /* Keeps QR code sharp */
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+}
+
+/* Raw Response */
+.raw-response {
+  margin: 0;
+  padding: 1rem;
+  background-color: #f7fafc;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  color: #2d3748;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
