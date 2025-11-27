@@ -2,24 +2,6 @@
 
 A serverless AWS CDK application for processing PDF documents, generating vector embeddings, and extracting structured insights using Amazon Bedrock.
 
-## Table of Contents
-
-- [Architecture Overview](#architecture-overview)
-- [Features](#features)
-- [Prerequisites](#prerequisites)
-- [Project Structure](#project-structure)
-- [Configuration](#configuration)
-- [Installation](#installation)
-- [Deployment](#deployment)
-- [Post-Deployment Setup](#post-deployment-setup)
-- [Usage](#usage)
-- [Environment Variables](#environment-variables)
-- [CDK Commands](#cdk-commands)
-- [Troubleshooting](#troubleshooting)
-- [Cost Estimation](#cost-estimation)
-- [Security](#security)
-- [License](#license)
-
 ## Architecture Overview
 
 This system provides a complete serverless solution for document processing and insight extraction:
