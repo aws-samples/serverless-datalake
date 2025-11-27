@@ -1,4 +1,4 @@
-# Document Insight Extraction System (Built with Kiro)
+# Cost Optimized RAG with S3 Vectors (Built with Kiro)
 
 A serverless AWS CDK application for processing PDF documents, generating vector embeddings, and extracting structured insights using Amazon Bedrock.
 
@@ -34,35 +34,22 @@ This system provides a complete serverless solution for document processing and 
 
 ### Architecture Diagram
 
-```
-User → AppRunner (React UI) → API Gateway (REST) → Lambda Functions
-                            ↓                           ↓
-                      WebSocket API              S3 (Documents)
-                            ↓                           ↓
-                      Lambda (Progress)         S3 Vectors (Embeddings)
-                                                        ↓
-                                                  DynamoDB (Cache)
-                                                        ↓
-                                                  Amazon Bedrock
-```
+<img width="1315" height="665" alt="Lab1 2-Unstructured-Datalake-S3Vectors drawio" src="https://github.com/user-attachments/assets/75dc7d04-f50c-4920-8d20-cfb24e546e86" />
+
 
 ## Features
-
 - ✅ **PDF Processing**: Extract text and images from PDF documents
 - ✅ **OCR Support**: Optical character recognition for images using Bedrock
 - ✅ **Vector Search**: Semantic search using S3 Vectors with metadata filtering
 - ✅ **Insight Extraction**: Generate structured insights from natural language prompts
-- ✅ **Real-time Progress**: WebSocket updates during document processing
-- ✅ **Caching**: Intelligent caching of insights for 24 hours
+- ✅ **Caching**: Intelligent caching of insights for faster retrieval
 - ✅ **Authentication**: Cognito user pool for secure access
 - ✅ **Auto-scaling**: AppRunner and Lambda auto-scale based on demand
 - ✅ **Multi-environment**: Separate dev and prod configurations
 
-## Prerequisites
-
-Before deploying, ensure you have the following installed:
-
-- **AWS CLI**: Version 2.x or later ([Installation Guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html))
+<details>
+  <summary>Prerequisites</summary>
+  - **AWS CLI**: Version 2.x or later ([Installation Guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html))
   ```bash
   aws --version
   aws configure  # Configure with your credentials
@@ -85,55 +72,18 @@ Before deploying, ensure you have the following installed:
   npm --version
   ```
 
-- **AWS Account Requirements**:
-  - Access to Amazon Bedrock with model access enabled for:
-    - `amazon.titan-embed-text-v2:0` (embeddings)
-    - `global.anthropic.claude-sonnet-4-20250514-v1:0` (insights)
-  - Sufficient service quotas for Lambda, API Gateway, AppRunner, etc.
+</details>
 
 
-## Configuration
-
-The system supports multiple environments with configuration in `cdk.json`:
-
-### Development Environment (`dev`)
-
-```json
-{
-  "lambda_memory": 3008,
-  "lambda_timeout": 600,
-  "apprunner_cpu": "2048",
-  "apprunner_memory": "4096",
-  "apprunner_min_instances": 1,
-  "apprunner_max_instances": 10,
-  "api_throttle_rate": 1000,
-  "enable_xray_tracing": false
-}
-```
-
-### Production Environment (`prod`)
-
-```json
-{
-  "lambda_memory": 10240,
-  "lambda_timeout": 900,
-  "apprunner_cpu": "4096",
-  "apprunner_memory": "8192",
-  "apprunner_min_instances": 2,
-  "apprunner_max_instances": 25,
-  "api_throttle_rate": 5000,
-  "enable_xray_tracing": true
-}
-```
-
-### Customization
-
+<details>
+  <summary>Customization</summary>
 You can customize the configuration by editing `cdk.json`:
 
 - **Model IDs**: Change Bedrock models (`embed_model_id`, `insight_model_id`)
 - **Chunking**: Adjust chunk size and overlap (`chunk_size`, `chunk_overlap`)
 - **Cache TTL**: Modify cache expiration (`cache_ttl_hours`)
 - **Resource Limits**: Set Lambda memory, timeout, concurrency limits
+</details>
 
 ## Installation
 
@@ -176,21 +126,24 @@ chmod +x installer.sh
 ```
 
 The installer will:
-1. Create a CodeBuild project with all necessary permissions
-2. Upload your code to S3
+1. Zip your code and upload to S3
+2. Create a CodeBuild project with all necessary permissions
 3. Execute the complete deployment automatically
 4. Monitor progress and display results
 5. Handle Lambda layer builds, CDK deployment, and frontend Docker image
+
 
 ## Post-Deployment Setup
 
 ### 1. Access the Application
 
-Head to AppRunner to access the frontend url.
+Head to [AppRunner](https://console.aws.amazon.com/apprunner) to access the frontend url.
 Open the URL in your browser and log in with your Cognito credentials.
 
-## Usage
 
+<details>
+  <summary>Usage</summary>
+  
 ### Upload a Document
 
 1. Log in to the frontend application
@@ -209,51 +162,13 @@ Open the URL in your browser and log in with your Cognito credentials.
 3. Click "Extract Insights"
 4. View structured JSON results
 5. Export as JSON or CSV
+</details>
 
-### API Usage
 
-You can also use the REST API directly:
+<details>
+  <summary>CDK Commands</summary>
 
-```bash
-# Get presigned URL for upload
-curl -X POST https://API_ENDPOINT/documents/presigned-url \
-  -H "Authorization: Bearer $ID_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"fileName": "document.pdf", "fileSize": 1024000}'
-
-# Extract insights
-curl -X POST https://API_ENDPOINT/insights/extract \
-  -H "Authorization: Bearer $ID_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"docId": "abc123", "prompt": "Summarize this document"}'
-
-# Retrieve cached insights
-curl -X GET https://API_ENDPOINT/insights/abc123 \
-  -H "Authorization: Bearer $ID_TOKEN"
-```
-
-## Environment Variables
-
-The following environment variables are used during deployment:
-
-- `CDK_DEFAULT_ACCOUNT`: AWS account ID (auto-detected)
-- `CDK_DEFAULT_REGION`: AWS region (default: us-east-1)
-- `AWS_REGION`: Alternative to CDK_DEFAULT_REGION
-
-Lambda functions use these environment variables (set automatically):
-
-- `VECTOR_BUCKET_NAME`: S3 Vector bucket name
-- `VECTOR_INDEX_ARN`: S3 Vector index ARN
-- `EMBED_MODEL_ID`: Bedrock embedding model ID
-- `INSIGHT_MODEL_ID`: Bedrock insight model ID
-- `DYNAMODB_TABLE_NAME`: DynamoDB cache table name
-- `WSS_URL`: WebSocket API URL
-- `REGION`: AWS region
-- `LOG_LEVEL`: Logging level (INFO/WARN/ERROR)
-
-## CDK Commands
-
-Common CDK commands for managing the infrastructure:
+- Common CDK commands for managing the infrastructure:
 
 ```bash
 # List all stacks
@@ -277,8 +192,11 @@ cdk destroy --context env=dev --all
 # Watch mode (auto-deploy on changes)
 cdk watch --context env=dev
 ```
+</details>
 
-## Troubleshooting
+
+<details>
+  <summary>Troubleshooting</summary>
 
 ### CDK Bootstrap Issues
 
@@ -366,17 +284,6 @@ cdk destroy --context env=dev --force
 cdk deploy --context env=dev --all
 ```
 
-### Cost Overruns
-
-**Problem**: AWS costs higher than expected
-
-**Solution**:
-- Check CloudWatch metrics for Lambda invocations
-- Review Bedrock usage in Cost Explorer
-- Verify DynamoDB is using on-demand billing
-- Check AppRunner instance count and size
-- Enable cost allocation tags for better tracking
-
 ## Cost Estimation
 
 ### Development Environment
@@ -453,6 +360,9 @@ Costs scale linearly with usage. For 10,000 documents/month:
 3. **Least Privilege**: Review and minimize IAM permissions
 4. **Secrets Management**: Use AWS Secrets Manager for sensitive data
 5. **Regular Updates**: Keep dependencies and Lambda runtimes updated
+
+</details>
+
 
 ## License
 
