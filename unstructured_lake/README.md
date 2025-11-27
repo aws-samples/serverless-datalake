@@ -2,6 +2,10 @@
 
 Amazon S3 Vectors is the first cloud object store with native support to store and query vectors, delivering purpose-built, cost-optimized vector storage. This solution leverages S3 Vector for vectorizing multi-modal data and extracting structured insights using Amazon Bedrock.
 
+### Architecture Diagram
+
+<img width="1315" height="665" alt="Lab1 2-Unstructured-Datalake-S3Vectors drawio" src="https://github.com/user-attachments/assets/75dc7d04-f50c-4920-8d20-cfb24e546e86" />
+
 ## Architecture Overview
 
 This system provides a complete serverless solution for document processing and insight extraction:
@@ -14,9 +18,6 @@ This system provides a complete serverless solution for document processing and 
 - **Intelligent Caching**: DynamoDB cache with 24-hour TTL for faster repeated queries
 - **Modern Frontend**: React application with AWS Cloudscape Design System hosted on AppRunner
 
-### Architecture Diagram
-
-<img width="1315" height="665" alt="Lab1 2-Unstructured-Datalake-S3Vectors drawio" src="https://github.com/user-attachments/assets/75dc7d04-f50c-4920-8d20-cfb24e546e86" />
 
 
 ## Features
