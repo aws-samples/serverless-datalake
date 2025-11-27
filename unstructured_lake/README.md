@@ -48,7 +48,7 @@ This system provides a complete serverless solution for document processing and 
 - ✅ **Multi-environment**: Separate dev and prod configurations
 
 <details>
-  <summary>Prerequisites</summary>
+  <summary><b>Prerequisites</b></summary>
   - **AWS CLI**: Version 2.x or later ([Installation Guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html))
   ```bash
   aws --version
@@ -76,7 +76,7 @@ This system provides a complete serverless solution for document processing and 
 
 
 <details>
-  <summary>Customization</summary>
+  <summary><b>Customization</b></summary>
 You can customize the configuration by editing `cdk.json`:
 
 - **Model IDs**: Change Bedrock models (`embed_model_id`, `insight_model_id`)
@@ -142,7 +142,7 @@ Open the URL in your browser and log in with your Cognito credentials.
 
 
 <details>
-  <summary>Usage</summary>
+  <summary><b>Usage</b></summary>
   
 ### Upload a Document
 
@@ -166,7 +166,7 @@ Open the URL in your browser and log in with your Cognito credentials.
 
 
 <details>
-  <summary>CDK Commands</summary>
+  <summary><b>CDK Commands</b></summary>
 
 - Common CDK commands for managing the infrastructure:
 
@@ -196,7 +196,7 @@ cdk watch --context env=dev
 
 
 <details>
-  <summary>Troubleshooting</summary>
+  <summary><b>Troubleshooting</b></summary>
 
 ### CDK Bootstrap Issues
 
