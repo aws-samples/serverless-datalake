@@ -1,6 +1,6 @@
 # Cost Optimized RAG with S3 Vectors (Built with Kiro)
 
-A serverless AWS CDK application for processing PDF documents, generating vector embeddings, and extracting structured insights using Amazon Bedrock.
+Amazon S3 Vectors is the first cloud object store with native support to store and query vectors, delivering purpose-built, cost-optimized vector storage. This solution leverages S3 Vector for vectorizing multi-modal data and extracting structured insights using Amazon Bedrock.
 
 ## Architecture Overview
 
