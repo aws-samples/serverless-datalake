@@ -73,7 +73,7 @@ You can customize the configuration by editing `cdk.json`:
 ### 1. Clone the Repository
 
 ```bash
-cd document-insight-extraction
+cd serverless_datalake/unstructured_lake/
 ```
 
 ### 2. Create Python Virtual Environment
