@@ -135,7 +135,7 @@ class ApiGatewayStack(BaseDocumentInsightStack):
                 tracing_enabled=True
             ),
             # CloudWatch role for logging
-            cloud_watch_role=True,
+            cloud_watch_role=False,
             # API key configuration (optional)
             api_key_source_type=apigateway.ApiKeySourceType.HEADER
         )
