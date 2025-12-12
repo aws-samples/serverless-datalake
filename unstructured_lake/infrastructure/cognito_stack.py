@@ -6,10 +6,13 @@ This module defines the Cognito User Pool and User Pool Client for user authenti
 from aws_cdk import (
     aws_cognito as cognito,
     aws_ssm as ssm,
+    aws_iam as iam,
     Duration,
 )
 from constructs import Construct
 from infrastructure.base_stack import BaseDocumentInsightStack
+
+from aws_cdk import aws_apigateway as apigateway
 
 
 class CognitoAuthStack(BaseDocumentInsightStack):
@@ -41,6 +44,16 @@ class CognitoAuthStack(BaseDocumentInsightStack):
             **kwargs: Additional stack properties
         """
         super().__init__(scope, construct_id, env_name, config, **kwargs)
+
+        # Create a role in here for Account level logging
+        cloudwatch_role = iam.Role(self,"ApiGatewayCloudWatchRole",assumed_by=iam.ServicePrincipal("apigateway.amazonaws.com"),
+                          managed_policies=[iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AmazonAPIGatewayPushToCloudWatchLogs")])
+
+        # Configure at logging account level needed for API-Gw
+        apigateway.CfnAccount(
+            self,
+            "ApiGatewayAccount",
+            cloud_watch_role_arn=cloudwatch_role.role_arn)
 
         # Create Cognito User Pool
         self.user_pool = self._create_user_pool()
