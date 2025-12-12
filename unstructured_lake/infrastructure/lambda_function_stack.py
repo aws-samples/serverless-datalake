@@ -566,6 +566,10 @@ class LambdaFunctionStack(BaseDocumentInsightStack):
                 # Basic Lambda execution permissions
                 iam.ManagedPolicy.from_aws_managed_policy_name(
                     "service-role/AWSLambdaBasicExecutionRole"
+                ),
+                # Bedrock Marketplace access permissions
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "AmazonBedrockMarketplaceAccess"
                 )
             ]
         )
