@@ -231,6 +231,7 @@ apprunner_stack = AppRunnerHostingStack(
 # Configure stack dependencies
 # ============================================================================
 # Lambda Function stack depends on S3, Lambda Layers, DynamoDB, and Processing Status
+lambda_function_stack.add_dependency(cognito_stack)
 lambda_function_stack.add_dependency(s3_stack)
 lambda_function_stack.add_dependency(lambda_layer_stack)
 lambda_function_stack.add_dependency(dynamodb_stack)
