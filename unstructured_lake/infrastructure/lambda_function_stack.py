@@ -571,7 +571,23 @@ class LambdaFunctionStack(BaseDocumentInsightStack):
                 iam.ManagedPolicy.from_aws_managed_policy_name(
                     "AmazonBedrockMarketplaceAccess"
                 )
-            ]
+            ],
+            inline_policies={
+                "MarketplaceSubscriptionPolicy": iam.PolicyDocument(
+                    statements=[
+                        iam.PolicyStatement(
+                            sid="VisualEditor0",
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "bedrock:*",
+                                "aws-marketplace:ViewSubscriptions",
+                                "aws-marketplace:Subscribe"
+                            ],
+                            resources=["*"]
+                        )
+                    ]
+                )
+            }
         )
         
         return role
