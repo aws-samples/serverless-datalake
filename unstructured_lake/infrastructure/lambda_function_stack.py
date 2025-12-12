@@ -198,7 +198,23 @@ class LambdaFunctionStack(BaseDocumentInsightStack):
                 iam.ManagedPolicy.from_aws_managed_policy_name(
                     "service-role/AWSLambdaBasicExecutionRole"
                 )
-            ]
+            ],
+            inline_policies={
+                "WebSocketApiPolicy": iam.PolicyDocument(
+                    statements=[
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "execute-api:ManageConnections",
+                                "execute-api:Invoke",
+                            ],
+                            resources=[
+                                f"arn:aws:execute-api:{self.region}:*:*/*/*"
+                            ]
+                        )
+                    ]
+                )
+            }
         )
         
         return role
