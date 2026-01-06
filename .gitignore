@@ -8,3 +8,4 @@ cdk.out/
 **/logs/**
 generated**
 **/generated**/**
+data_discovery_agent/frontend/src/index copy.css.bck
