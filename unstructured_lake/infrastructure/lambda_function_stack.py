@@ -581,7 +581,8 @@ class LambdaFunctionStack(BaseDocumentInsightStack):
                             actions=[
                                 "bedrock:*",
                                 "aws-marketplace:ViewSubscriptions",
-                                "aws-marketplace:Subscribe"
+                                "aws-marketplace:Subscribe",
+                                "aws-marketplace:*",
                             ],
                             resources=["*"]
                         )
