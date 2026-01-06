@@ -1,0 +1,10 @@
+flask==2.3.3
+flask-cors==4.0.0
+flask-socketio==5.3.6
+requests==2.31.0
+python-dotenv==1.0.0 
+strands-agents>=1.0.0
+strands-agents-tools>=0.2.1
+mysql-connector-python>=8.0.0
+mcp>=1.0.0
+langfuse

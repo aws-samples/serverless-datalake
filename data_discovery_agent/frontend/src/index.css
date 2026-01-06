@@ -1,0 +1,114 @@
+@import url('https://fonts.googleapis.com/css2?family=Special+Elite&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-detective-paper text-detective-ink;
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='0.02'%3E%3Cpath d='M36 34h4v1h-4v-1zm0-2h1v5h-1v-5zm2-2h1v4h-1v-4zm-2 2h-1v1h2v-1h-1zm-2-2h5v1h-5v-1zm2-2h1v5h-1v-5z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold text-detective-800;
+  }
+  
+  .font-detective {
+    font-family: 'Special Elite', cursive;
+  }
+}
+
+@layer components {
+  .chat-message {
+    @apply p-4 rounded-lg mb-4 max-w-4xl;
+  }
+  
+  .case-file-heading {
+    @apply font-detective text-lg font-bold text-detective-800 border-b-2 border-detective-accent uppercase tracking-wider;
+  }
+  
+  .user-message {
+    @apply bg-detective-accent text-white ml-auto shadow-detective;
+  }
+  
+  .assistant-message {
+    @apply bg-detective-50 border border-detective-200 shadow-detective;
+  }
+  
+  .typing-indicator {
+    @apply flex space-x-1 p-4;
+  }
+  
+  .typing-dot {
+    @apply w-2 h-2 bg-detective-400 rounded-full animate-pulse;
+  }
+  
+  .dashboard-card {
+    @apply bg-detective-50 rounded-lg shadow-detective border border-detective-200 p-6;
+  }
+  
+  .sidebar-item {
+    @apply flex items-center px-4 py-2 text-sm font-medium text-detective-700 rounded-md hover:bg-detective-100 hover:text-detective-800 transition-colors;
+  }
+  
+  .sidebar-item.active {
+    @apply bg-detective-200 text-detective-800 border-l-4 border-detective-accent;
+  }
+  
+  /* Detective theme components */
+  .clue-highlight {
+    @apply bg-detective-accent/20 border-l-4 border-detective-accent p-3 rounded-r-md;
+  }
+  
+  .evidence-card {
+    @apply bg-detective-50 p-4 rounded-lg border border-detective-200 shadow-detective;
+  }
+  
+  .magnifying-icon {
+    @apply text-detective-accent animate-magnify;
+  }
+  
+  .detective-header {
+    @apply bg-detective-100 text-detective-800 shadow-lg border-b border-detective-200;
+  }
+  
+  .detective-button {
+    @apply bg-detective-accent hover:bg-detective-accent/90 text-white px-4 py-2 rounded-md shadow-sm transition-colors;
+  }
+  
+  .detective-button-secondary {
+    @apply bg-detective-200 hover:bg-detective-300 text-detective-800 px-4 py-2 rounded-md shadow-sm transition-colors;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f8f9fa;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #adb5bd;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6c757d;
+}
+
+/* Code block styling */
+pre {
+  @apply bg-detective-100 text-detective-800 p-4 rounded-lg overflow-x-auto border border-detective-200;
+}
+
+code {
+  @apply bg-detective-200 text-detective-800 px-1 py-0.5 rounded text-sm;
+}
+
+pre code {
+  @apply bg-transparent text-detective-800 p-0;
+} 

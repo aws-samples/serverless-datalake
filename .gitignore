@@ -2,3 +2,9 @@
 .venv
 cdk.out/
 *.pyc
+**/node_modules/**
+.DS_Store
+.vscode/**
+**/logs/**
+generated**
+**/generated**/**
