@@ -120,8 +120,24 @@ def start_chatbot():
             
             # Load MCP server details from JSON file
             try:
-                #config_path = os.path.join(os.path.dirname(__file__), 'mcp_servers.json')
-                with open('mcp_servers.json', 'r') as f:
+                possible_paths = [
+                    'mcp_servers.json',  # Current directory
+                    os.path.join(os.path.dirname(__file__), 'mcp_servers.json'),  # Same dir as script
+                    os.path.join(os.getcwd(), 'mcp_servers.json'),  # Current working directory
+                ]
+                
+                config_path = None
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        config_path = path
+                        break
+                if not config_path:
+                    logger.error(f"mcp_servers.json not found in any of these locations: {possible_paths}")
+                    logger.error(f"Current working directory: {os.getcwd()}")
+                    logger.error(f"Script directory: {os.path.dirname(__file__)}")
+                    raise FileNotFoundError("mcp_servers.json not found")
+                
+                with open(config_path, 'r') as f:
                     mcp_config = json.load(f)
                     sse_urls = mcp_config.get('servers', [])
                 logger.info(f"Loaded {len(sse_urls)} MCP servers from configuration file")
@@ -740,6 +756,99 @@ def handle_confirm_plan(data):
             'timestamp': datetime.now().isoformat()
         })
 
+@socketio.on("tool_approval_response")
+def handle_tool_approval_response(data):
+    """
+    Handle tool approval response from client.
+    
+    Args:
+        data: Dictionary containing approval response details
+    """
+    try:
+        client_sid = request.sid
+        
+        # Define streaming callback for WebSocket
+        async def stream_callback(update_data):
+            """Callback function to stream responses."""
+            try:
+                socketio.emit(
+                    "chat_response",
+                    {**update_data, "timestamp": datetime.now().isoformat()},
+                    room=client_sid,
+                )
+            except Exception as e:
+                logger.error(f"Error in stream callback: {e}")
+        
+        def handle_approval():
+            try:
+                # Create a new event loop for the thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # Set the stream callback for the chatbot
+                chatbot.stream_callback = stream_callback
+                
+                # Process tool approval response
+                result = loop.run_until_complete(
+                    chatbot.continue_with_tool_approval(
+                        agent_name=data.get('agent_name', ''),
+                        query=data.get('query', ''),
+                        interrupt_id=data.get('interrupt_id', ''),
+                        approval_response=data.get('approval_response', 'deny'),
+                        pending_responses=data.get('pending_responses', []),
+                        remaining_plan=data.get('remaining_plan', []),
+                        original_query=data.get('original_query', '')
+                    )
+                )
+                
+                if result:
+                    # Send the final result
+                    socketio.emit(
+                        "chat_response",
+                        {
+                            "type": "content",
+                            "content": result,
+                            "timestamp": datetime.now().isoformat(),
+                        },
+                        room=client_sid,
+                    )
+                
+            except Exception as e:
+                logger.error(f"Error processing tool approval response: {e}")
+                socketio.emit(
+                    'chat_response',
+                    {
+                        'type': 'error',
+                        'content': f"An error occurred while processing tool approval: {str(e)}",
+                        'timestamp': datetime.now().isoformat()
+                    },
+                    room=client_sid
+                )
+            finally:
+                loop.close()
+        
+        # Start processing in background thread
+        process_thread = threading.Thread(target=handle_approval, daemon=True)
+        process_thread.start()
+        
+        # Send immediate acknowledgment
+        emit(
+            "chat_response",
+            {
+                "type": "status",
+                "content": f"Processing tool approval: {data.get('approval_response', 'unknown')}...",
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+        
+    except Exception as e:
+        logger.error(f"Error processing tool approval response: {e}")
+        emit('chat_response', {
+            'type': 'error',
+            'content': f"An error occurred while processing tool approval: {str(e)}",
+            'timestamp': datetime.now().isoformat()
+        })
+
 @socketio.on("build_widget")
 def handle_build_widget(data):
     """
@@ -843,4 +952,4 @@ if __name__ == "__main__":
     print(f"Logs will be written to: {os.path.abspath('logs/backend.log')}")
     
     # Run the Flask-SocketIO server
-    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True, allow_unsafe_werkzeug=True)

@@ -26,6 +26,14 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.chatbot_config import ChatbotConfig, DEFAULT_CONFIG
+from .hooks import MCPToolApprovalHook
+from .hooks.approval_hooks import (
+    set_always_approve_for_tool, 
+    remove_always_approve_for_tool, 
+    is_tool_always_approved,
+    get_always_approved_tools
+)
+from utils.response_summarizer import ResponseSummarizer, quick_summarize
 # Configure logging
 import sys
 
@@ -56,6 +64,8 @@ class ResponseType(Enum):
     ERROR = "error"
     CLARIFICATION = "clarification"
     CONFIRMATION_NEEDED = "confirmation_needed"
+    SQL_CONFIRMATION_NEEDED = "sql_confirmation_needed"
+    TOOL_APPROVAL_NEEDED = "tool_approval_needed"
     PARTIAL = "partial"
     DASHBOARD_FILE = "dashboard_file"
     WIDGET_FILE = "widget_file"
@@ -73,6 +83,59 @@ class AgentResponse:
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
+
+@dataclass
+class SQLQueryRequest:
+    """SQL query request that needs human confirmation."""
+    query: str
+    database_name: str
+    output_location: str
+    catalog_name: str = "AwsDataCatalog"
+    workgroup: str = "primary"
+    limit: Optional[int] = 100
+    agent_name: str = ""
+    original_query: str = ""
+    request_id: str = ""
+    
+    def __post_init__(self):
+        if not self.request_id:
+            self.request_id = str(uuid.uuid4())
+
+class SQLQueryInterceptor:
+    """Intercepts and manages SQL query confirmations."""
+    
+    def __init__(self):
+        self.pending_queries: Dict[str, SQLQueryRequest] = {}
+        self.approved_queries: Dict[str, SQLQueryRequest] = {}
+        
+    def add_pending_query(self, sql_request: SQLQueryRequest) -> str:
+        """Add a SQL query that needs confirmation."""
+        self.pending_queries[sql_request.request_id] = sql_request
+        return sql_request.request_id
+        
+    def approve_query(self, request_id: str) -> Optional[SQLQueryRequest]:
+        """Approve a pending SQL query."""
+        if request_id in self.pending_queries:
+            query_request = self.pending_queries.pop(request_id)
+            self.approved_queries[request_id] = query_request
+            return query_request
+        return None
+        
+    def reject_query(self, request_id: str) -> bool:
+        """Reject a pending SQL query."""
+        if request_id in self.pending_queries:
+            del self.pending_queries[request_id]
+            return True
+        return False
+        
+    def get_pending_query(self, request_id: str) -> Optional[SQLQueryRequest]:
+        """Get a pending query by ID."""
+        return self.pending_queries.get(request_id)
+        
+    def clear_old_queries(self, max_age_minutes: int = 30):
+        """Clear old pending queries to prevent memory leaks."""
+        # This would need timestamp tracking in a production system
+        pass
 
 import json
 
@@ -151,8 +214,11 @@ class MCPClientChatbot:
         self.session_manager = None
         self.collected_datasets = []
         self.total_datasets=0
-        self.custom_summarization_agent = None
+        self.response_summarizer = None
         self.html_widget_generator_agent = None
+        
+        # SQL Query Interceptor for human confirmation
+        self.sql_interceptor = SQLQueryInterceptor()
 
     async def _handle_error(self, error_message: str, context: str = ""):
         """Handle errors consistently with proper logging and user feedback."""
@@ -220,12 +286,12 @@ class MCPClientChatbot:
         You are a Multi-Agent Orchestrator designed to coordinate support across multiple agents.
         
         **Available Agents:**
-        {', '.join([f"Agent: {client['name']}, Type: {client['agent_type']}, Description: {client['description']} {client['usage']}" for client in self.mcp_clients.values()])}
+        {', '.join([f"Agent: {client['name']}, MCP_Agent: yes, Type: {client['agent_type']}, Description: {client['description']} {client['usage']}" for client in self.mcp_clients.values()])}
         - Agent: DashboardBuilder, Description: Specialized agent for building dashboards from collected data
         
         **Your Role:**
-        1. Analyze user queries and determine the most appropriate agents to handle them
-        2. Create execution plans with ordered agent calls
+        1. As an orchestrator analyze user queries and determine the most appropriate agents to handle them
+        2. Create execution plans with ordered agent calls.
         3. Act as verifier when requested to check if queries are resolved
         
         **Critical Decision Rules:**
@@ -312,6 +378,11 @@ class MCPClientChatbot:
             
             # Initialize MCP clients
             for mcp_name, server_config in self.sse_urls.items():
+                # Skip disabled servers
+                if server_config.get("disabled", False):
+                    logger.info(f"Skipping disabled MCP server: {mcp_name}")
+                    continue
+                    
                 mcp_name = server_config["name"] if "name" in server_config else str(mcp_name).capitalize()
                 is_streamable_http = False
                 is_sse = False
@@ -321,19 +392,24 @@ class MCPClientChatbot:
                 mcp_args = server_config["args"] if "args" in server_config else ""
                 agent_type = server_config["agent_type"] if "agent_type" in server_config else "Others"
                 usage = server_config["usage"] if "usage" in server_config else ""
-                if "url" in server_config:
+                if "transportType" in server_config and server_config["transportType"]=='sse':
                     is_sse = True
-                elif "command" in server_config:
-                    is_stdio = True
+                elif "transportType" in server_config and server_config["transportType"]=='streamable_http':
+                    is_streamable_http = True
                 else:
-                    # TODO Streamable HTTP here
-                    pass
+                    is_stdio = True
                 specialized_agent_mcp_rules = server_config['rules_prompt'] if 'rules_prompt' in server_config else ""
                 server_description = server_config["description"] if "description" in server_config else ""
+                headers = server_config.get("headers", {})
                 try:
                     logger.info(f"Initializing {mcp_name} MCP client at {sse_url}")
                     mcp_client=None
                     if is_sse:
+                        # Get headers from server config
+                        # if headers:
+                        #     logger.info(f"Using custom headers for {mcp_name}: {list(headers.keys())}")
+                        #     mcp_client = MCPClient(lambda: sse_client(sse_url, headers=headers))
+                        # else:
                         mcp_client = MCPClient(lambda: sse_client(sse_url))
                     
                     elif is_stdio:
@@ -343,8 +419,12 @@ class MCPClientChatbot:
                                 args=mcp_args)))
                 
                     elif is_streamable_http:
+                        # if headers:
+                        #     logger.info(f"Using custom headers for {mcp_name}: {list(headers.keys())}")
+                        #     mcp_client = MCPClient(lambda: streamablehttp_client(sse_url, headers=headers))
+                        # else:
                         mcp_client = MCPClient(lambda: streamablehttp_client(sse_url))
-                    
+                        
                     with mcp_client:
                         tools = mcp_client.list_tools_sync()
                         # Get Available tools
@@ -369,7 +449,8 @@ class MCPClientChatbot:
                             "mcp_args": mcp_args,
                             "tools": tool_config,
                             "rules_prompt": specialized_agent_mcp_rules,
-                            "usage": usage
+                            "usage": usage,
+                            "headers": server_config.get("headers", {})
                         }
                     print(f"🛠️ Initialized {mcp_name} MCP client")
                     logger.info(f"Successfully initialized {mcp_name} MCP client with {len(tools)} tools")
@@ -395,29 +476,19 @@ class MCPClientChatbot:
         try:
             logger.info("Building conversation manager")
             
-            # Create a cheaper, faster model for summarization tasks using config
-            cheaper_model = BedrockModel(model_id=self.config.model.cheaper_model_id)
-            logger.info("Created cheaper model for summarization")
-            
-            # Create session manager if not already created
-            if not self.session_manager:
-                logger.warning("Session manager not initialized for conversation manager, creating a default one")
-                self.session_manager = FileSessionManager(session_id=f"default_conversation_{int(time.time())}")
-            
-            # Create summarization agent
-            self.custom_summarization_agent = Agent(
-                session_manager=self.session_manager, 
-                model=cheaper_model, 
-                agent_id=str(uuid.uuid4())
+            # Create response summarizer utility
+            self.response_summarizer = ResponseSummarizer(
+                model_id=self.config.model.cheaper_model_id,
+                session_id=f"summarizer_{self.session_manager.session_id}"
             )
-            logger.info("Created summarization agent")
+            logger.info("Created response summarizer utility")
             
             # Use configuration to determine conversation manager type
             if self.config.session.enable_summarization:
                 self.conversation_manager = SummarizingConversationManager(
                     summary_ratio=0.5,  # Could be made configurable
                     preserve_recent_messages=self.config.session.summarization_threshold // 5,
-                    summarization_agent=self.custom_summarization_agent
+                    summarization_agent=self.response_summarizer.agent
                 )
                 logger.info("Created summarizing conversation manager")
             else:
@@ -470,21 +541,24 @@ class MCPClientChatbot:
             placeholder=str(tool_config), agent_special_rules=f"2. Rules: {specialized_agent_mcp_rules_prompt}"
         )
         
-        # Use model from config
-        agent = Agent(
-            name=mcp_name,
-            tools=tools,
-            model=self.model,  # This now uses the configured model
-            system_prompt=AGENT_SYSTEM_PROMPT,
-            trace_attributes={
-                "session.id": "sample-session-id",  # Example session ID
-                "user.id": "leosill@gmail.com",  # Example user ID
-                "langfuse.tags": ["MCP-Dashboarding", "Strands-Project-Demo"],
-            },
-            conversation_manager=self.conversation_manager, 
-            session_manager=self.session_manager,
-            agent_id=str(uuid.uuid4())
+        # Create approval hook for this agent
+        approval_hook = MCPToolApprovalHook(
+            app_name=f"{mcp_name}_agent",
+            tools_requiring_approval=None,  # Will use default list
+            auto_approve_patterns=None      # Will use default patterns
         )
+        
+        # Use model from config for non-Athena agents
+        agent = Agent(
+                name=mcp_name,
+                tools=tools,
+                model=self.model,
+                system_prompt=AGENT_SYSTEM_PROMPT,
+                conversation_manager=self.conversation_manager, 
+                session_manager=self.session_manager,
+                hooks=[approval_hook],  # Add the approval hook
+                agent_id=str(uuid.uuid4())
+            )
         return agent
     
     def extract_and_fix_json(self, text: str) -> Optional[Dict]:
@@ -1152,6 +1226,10 @@ class MCPClientChatbot:
         Returns:
             HTML string for the dashboard
         """
+        dashboard_features = ""
+        if not is_single_widget:
+            dashboard_features = "- Add a fixed navigation header with AWS logo.\n         - Implement a dark mode toggle\n         - Create card-based components with subtle shadows and hover effects\n         - Use rounded corners (border-radius: 12px) for containers"
+        
         html_prompt = f"""
         I need to create a professional, interactive HTML {"widget" if is_single_widget else "dashboard"} based on the user's query and visualization requirements.
         {"Mandatory- You will always generate a single widget. If there are multiple datasets try combining them into a single widget else ignore other datasets" if is_single_widget else ""}
@@ -1164,12 +1242,9 @@ class MCPClientChatbot:
         ### Core Functionality
         - Create a complete, standalone HTML file with all necessary components embedded
         - Make the {"widget" if is_single_widget else "dashboard"} fully responsive across desktop, tablet, and mobile devices
-        - Implement proper data visualization based on the specifications.{"And only generate one visualization" if is_single_widget else ""}
-        - Ensure all chart elements are properly labeled and accessible. {"And only generate one chart" if is_single_widget else ""}
-        {"" if is_single_widget else """ - Add a fixed navigation header with AWS logo.
-         - Implement a dark mode toggle
-         - Create card-based components with subtle shadows and hover effects
-         - Use rounded corners (border-radius: 12px) for containers"""}
+        - Implement proper data visualization based on the specifications.{" And only generate one visualization" if is_single_widget else ""}
+        - Ensure all chart elements are properly labeled and accessible.{" And only generate one chart" if is_single_widget else ""}
+        {dashboard_features}
         - Below the title write a one-line summary of the generated {"widget" if is_single_widget else "dashboard"}
         - MANDATORY: Use standard HTML syntax with proper quotes (") for attributes, not escaped quotes (\") which would break HTML parsing
         
@@ -1265,9 +1340,17 @@ class MCPClientChatbot:
         if mcp_name in self.mcp_clients:
             mcp_config = self.mcp_clients[mcp_name]
             if mcp_config["is_sse"]:
-                mcp_client = MCPClient(
-                    lambda: sse_client(self.mcp_clients[mcp_name]["mcp_url"])
-                )
+                # Get headers from server config
+                headers = mcp_config.get("headers", {})
+                if headers:
+                    logger.info(f"Using custom headers for {mcp_name}: {list(headers.keys())}")
+                    mcp_client = MCPClient(
+                        lambda: sse_client(self.mcp_clients[mcp_name]["mcp_url"], headers=headers)
+                    )
+                else:
+                    mcp_client = MCPClient(
+                        lambda: sse_client(self.mcp_clients[mcp_name]["mcp_url"])
+                    )
             elif mcp_config["is_stdio"]:
                 mcp_client = MCPClient(lambda: stdio_client(
                     StdioServerParameters(
@@ -1323,7 +1406,11 @@ class MCPClientChatbot:
         self.dashboard_designer_agent = None
         self.html_generator_agent = None
         self.html_widget_generator_agent = None
-        self.custom_summarization_agent = None
+        
+        # Clean up response summarizer
+        if self.response_summarizer:
+            self.response_summarizer.cleanup()
+            self.response_summarizer = None
         
         # Clear collected data
         self.collected_datasets = []
@@ -1339,11 +1426,43 @@ class MCPClientChatbot:
         self.model = BedrockModel(model_id=self.config.model.primary_model_id)
         self.cheaper_model = BedrockModel(model_id=self.config.model.cheaper_model_id)
         
+        # Update response summarizer if it exists
+        if self.response_summarizer:
+            self.response_summarizer.cleanup()
+            self.response_summarizer = ResponseSummarizer(
+                model_id=self.config.model.cheaper_model_id,
+                session_id=f"summarizer_{self.session_manager.session_id if self.session_manager else int(time.time())}"
+            )
+        
         # Update logger
         global logger
         logger = setup_logging(self.config)
         
         logger.info(f"Configuration updated: {self.config}")
+
+    def set_tool_always_approve(self, tool_name: str):
+        """Set a specific tool to always be approved without asking."""
+        set_always_approve_for_tool(tool_name)
+        logger.info(f"Tool {tool_name} set to always approve")
+
+    def remove_tool_always_approve(self, tool_name: str):
+        """Remove a tool from the always approve list."""
+        remove_always_approve_for_tool(tool_name)
+        logger.info(f"Tool {tool_name} removed from always approve list")
+
+    def is_tool_always_approved(self, tool_name: str) -> bool:
+        """Check if a tool is set to always approve."""
+        return is_tool_always_approved(tool_name)
+
+    def get_always_approved_tools(self) -> List[str]:
+        """Get list of all tools that are always approved."""
+        return get_always_approved_tools()
+
+    def clear_all_always_approvals(self):
+        """Clear all always approve settings."""
+        from .hooks.approval_hooks import _always_approve_cache
+        _always_approve_cache.clear()
+        logger.info("Cleared all always approve settings")
 
     async def _collect_data_from_mcp_servers(self, user_query: str, stream_callback=None) -> Dict[str, Any]:
         """Collect data from all available MCP servers with dataset limit."""
@@ -1494,9 +1613,10 @@ class MCPClientChatbot:
                 user_query, is_single_widget
             )
             
+            widget_or_dashboard = "Widget" if is_single_widget else "Dashboard"
             await self._stream_update(
                 "content",
-                f"✅ {"Widget" if is_single_widget else "Dashboard"} generated successfully!",
+                f"✅ {widget_or_dashboard} generated successfully!",
                 is_partial=False
             )
             
@@ -1514,7 +1634,7 @@ class MCPClientChatbot:
             return {
                 "type": {"widget_file" if is_single_widget else "dashboard_file"},
                 "file_name": file_name,
-                "message": f"{"Widget" if is_single_widget else "Dashboard"} generated successfully!",
+                "message": f"{widget_or_dashboard} generated successfully!",
             }
             
         except Exception as e:
@@ -1524,6 +1644,215 @@ class MCPClientChatbot:
                 "type": "error",
                 "content": f"Dashboard generation failed: {str(e)}"
             }
+
+    async def _execute_single_agent(self, agent_config: Dict, agent_responses: List, 
+                                   original_query: str, remaining_plan: List = None, 
+                                   current_index: int = 0, is_single_widget: bool = False) -> Dict[str, Any]:
+        """
+        Execute a single agent and handle its response.
+        
+        Args:
+            agent_config: Configuration for the agent to execute
+            agent_responses: List of responses collected so far
+            original_query: The original user query
+            remaining_plan: The remaining agents in the plan (for approval handling)
+            current_index: Current index in the plan (for calculating remaining agents)
+            is_single_widget: Whether this is for a single widget generation
+            
+        Returns:
+            Dictionary with execution result and any special handling needed
+        """
+        agent_name = agent_config["agent_name"]
+        step_number = agent_config.get("step_number", 1)
+        
+        logger.info(f"Executing step {step_number}: {agent_name}")
+        
+        # Handle user clarification requests
+        if agent_name.lower() == 'user':
+            clarification_msg = agent_config.get('clarification_message', 'Clarification needed')
+            await self._stream_update('thinking', clarification_msg)
+            agent_responses.append({"agent_name": agent_name, "response": clarification_msg})
+            return {
+                "status": "clarification_needed",
+                "responses": agent_responses
+            }
+        
+        # Execute DashboardBuilder
+        if agent_name == 'DashboardBuilder':
+            await self._stream_update('thinking', 'Generating Dashboard...')
+            dashboard_response = await self.create_dashboard(original_query, is_single_widget)
+            if dashboard_response['type'] == 'error':
+                return {
+                    "status": "error",
+                    "error_response": dashboard_response
+                }
+            agent_responses.append({"agent_name": agent_name, "response": dashboard_response})
+            return {
+                "status": "success",
+                "responses": agent_responses
+            }
+        
+        # Execute MCP agents
+        elif agent_name in self.mcp_clients:
+            enhanced_query = self._build_enhanced_query(original_query, agent_responses)
+            response = await self._safe_execute_agent(agent_name, enhanced_query, agent_responses)
+            
+            if response and response.success:
+                json_resp = self.extract_and_fix_json(response.response)
+                if json_resp:
+                    self.collected_datasets.append(str(json_resp))
+                    self.total_datasets += 1
+                agent_responses.append({"agent_name": agent_name, "response": response.response})
+                return {
+                    "status": "success",
+                    "responses": agent_responses
+                }
+            elif response and isinstance(response.response, dict) and response.response.get('type') == 'tool_approval_needed':
+                # Tool approval needed - include remaining plan
+                approval_data = response.response
+                if remaining_plan:
+                    approval_data["remaining_plan"] = remaining_plan[current_index + 1:] if current_index < len(remaining_plan) - 1 else []
+                approval_data["original_query"] = original_query
+                approval_data["pending_responses"] = agent_responses
+                
+                await self._stream_update(
+                    "tool_approval_needed",
+                    f"Tool approval required for {approval_data['agent_name']}",
+                    extra=approval_data
+                )
+                
+                return {
+                    "status": "approval_needed",
+                    "approval_data": approval_data
+                }
+            else:
+                await self._stream_update('thinking', f"Agent {agent_name} encountered an error: {response}")
+                logger.warning(f"Agent {agent_name} failed: {response.error_message if response else 'Unknown error'}")
+                return {
+                    "status": "agent_failed",
+                    "responses": agent_responses,
+                    "error": response.error_message if response else 'Unknown error'
+                }
+        else:
+            # Agent not found
+            error_msg = f"Agent {agent_name} not found in available agents."
+            await self._handle_error(error_msg)
+            return {
+                "status": "agent_not_found",
+                "error": error_msg
+            }
+
+    async def _execute_remaining_plan(self, remaining_plan: List, original_query: str, 
+                                     current_responses: List) -> Dict[str, Any]:
+        """Execute the remaining agents in the orchestrated plan."""
+        try:
+            logger.info(f"Executing remaining plan with {len(remaining_plan)} agents")
+            agent_responses = current_responses.copy()
+            
+            for idx, agent_config in enumerate(remaining_plan):
+                result = await self._execute_single_agent(
+                    agent_config, agent_responses, original_query, remaining_plan, idx
+                )
+                if result["status"] == "clarification_needed":
+                    return result["responses"]
+                elif result["status"] == "error":
+                    return result["error_response"]
+                elif result["status"] == "approval_needed":
+                    return {
+                        "type": "tool_approval_needed",
+                        "content": result["approval_data"]
+                    }
+                elif result["status"] == "success":
+                    agent_responses = result["responses"]
+                elif result["status"] == "agent_failed":
+                    agent_responses = result["responses"]
+                    # Continue with other agents instead of breaking
+                elif result["status"] == "agent_not_found":
+                    return {"type": ResponseType.ERROR.value, "content": result["error"]}
+            
+            # Process final responses
+            return await self._process_final_responses(agent_responses, original_query, False)
+            
+        except Exception as e:
+            logger.error(f"Error executing remaining plan: {e}")
+            await self._handle_error(f"Error executing remaining plan: {str(e)}")
+            return {"type": ResponseType.ERROR.value, "content": f"Error executing remaining plan: {str(e)}"}
+
+    async def continue_with_tool_approval(self, agent_name: str, query: str, interrupt_id: str, 
+                                        approval_response: str, pending_responses: List = None,
+                                        remaining_plan: List = None, original_query: str = None) -> Optional[str]:
+        """Continue agent execution after tool approval and resume the orchestrated plan."""
+        try:
+            logger.info(f"Executing approved tool for {agent_name} with approval: {approval_response}")
+            
+            # Check if the user denied the request
+            if approval_response.lower() in ['deny', 'n', 'no']:
+                await self._stream_update("content", f"Tool execution denied by user for {agent_name}")
+                # If denied, we should still continue with the remaining plan
+                # if remaining_plan and len(remaining_plan) > 0:
+                    #logger.info("Tool denied, but continuing with remaining plan")
+                    # return await self._execute_remaining_plan(remaining_plan, original_query or query, pending_responses or [])
+                return "Tool execution denied by user"
+            
+            # Import the approval cache functions
+            from .hooks.approval_hooks import set_tool_approval, clear_tool_approval
+            
+            # Extract the tool name from the pending tool calls
+            tool_name = self._pending_tool_calls.get(interrupt_id, {}).get('tool_name', 'unknown')
+            
+            # Set the approval for this specific tool
+            set_tool_approval(interrupt_id, tool_name, approval_response)
+            
+            # If user chose "always", also set the specific tool for always approve
+            if approval_response.lower() in ["always", "a"]:
+                if tool_name != 'unknown':
+                    self.set_tool_always_approve(tool_name)
+                    logger.info(f"Tool {tool_name} added to always approve list")
+            
+            try:
+                # Re-execute the agent with the approval cached
+                query = self._build_enhanced_query(original_query, pending_responses)
+                result = await self._execute_agent(agent_name, query)
+                if 'pending_responses' in result:
+                    pending_responses.extend(result['pending_responses'])
+                # Process the result
+                agent_responses = pending_responses or []
+                
+                if isinstance(result, dict) and result.get("type") == "tool_approval_needed":
+                    # If we get another approval request, return it with the remaining plan
+                    result["remaining_plan"] = remaining_plan
+                    result["original_query"] = original_query
+                    result["pending_responses"] = agent_responses
+                    
+                    await self._stream_update(
+                    "tool_approval_needed",
+                    f"Tool approval required for {result['agent_name']}",
+                    extra=result)
+
+                    return result
+                elif result:
+                    # Add this agent's response to the collection
+                    json_resp = self.extract_and_fix_json(result) if isinstance(result, str) else result
+                    if json_resp:
+                        self.collected_datasets.append(str(json_resp))
+                        self.total_datasets += 1
+                    agent_responses.append({"agent_name": agent_name, "response": result})
+                
+                # Continue with the remaining plan if there are more agents to execute
+                if remaining_plan and len(remaining_plan) > 0:
+                    return await self._execute_remaining_plan(remaining_plan, original_query, agent_responses)
+                else:
+                    # No more agents in the plan, process final responses
+                    return await self._process_final_responses(agent_responses, original_query, False)
+                    
+            finally:
+                # Clean up the temporary approval
+                clear_tool_approval(interrupt_id)
+                    
+        except Exception as e:
+            logger.error(f"Error continuing agent execution after approval: {e}")
+            await self._stream_update("error", f"Error executing approved tool: {str(e)}")
+            return None
 
     async def continue_with_confirmed_plan(self, plan: list, original_query: str, stream_callback, user_id: str = "default", session_id: str="None", is_single_widget=False):
         """Continue processing with a confirmed plan from human."""
@@ -1542,50 +1871,44 @@ class MCPClientChatbot:
             # Execute the confirmed plan
             await self._stream_update("thinking", f"\n Executing confirmed plan... {plan} \n")
             
-            # Execute each identified agent
+            # Execute each identified agent - FIXED: Properly accumulate responses
             agent_responses = []
             try:
-                indx = 1
-                for agent_config in plan:
-                    agent_name = agent_config["agent_name"]
-                    step_number = agent_config.get("step_number", 1)
+                for idx, agent_config in enumerate(plan):
+                    # Pass the accumulated responses to each agent
+                    result = await self._execute_single_agent(
+                        agent_config, agent_responses.copy(), original_query, plan, idx, is_single_widget
+                    )
                     
-                    if indx != step_number:
-                        continue
-                    indx += 1
-                        
-                    # Handle user clarification requests
-                    if agent_name.lower() == 'user' and step_number == 1:
-                        clarification_msg = agent_config.get('clarification_message', 'Question for User')
-                        await self._stream_update('thinking', clarification_msg)
-                        agent_responses.append({"agent_name": agent_name, "response": clarification_msg})
+                    if result["status"] == "clarification_needed":
                         is_clarification_needed = True
+                        # Keep all accumulated responses
+                        agent_responses.extend(result["responses"])
                         break
-                    
-                    # Execute agent if available
-                    if agent_name not in self.mcp_clients and agent_name != 'DashboardBuilder':
-                        await self._handle_error(f"Agent {agent_name} not found in available agents.")
+                    elif result["status"] == "error":
+                        return result["error_response"]
+                    elif result["status"] == "approval_needed":
+                        return {
+                            "type": "tool_approval_needed",
+                            "content": result["approval_data"]
+                        }
+                    elif result["status"] == "success":
+                        # FIXED: Accumulate responses instead of overwriting
+                        new_responses = result["responses"]
+                        # Only add the new response (last one in the list)
+                        if new_responses and len(new_responses) > len(agent_responses):
+                            agent_responses.extend(new_responses[len(agent_responses):])
+                        logger.info(f"Agent {agent_config['agent_name']} completed successfully. Total responses: {len(agent_responses)}")
+                    elif result["status"] == "agent_failed":
+                        # FIXED: Still accumulate responses even if agent failed
+                        new_responses = result["responses"]
+                        if new_responses and len(new_responses) > len(agent_responses):
+                            agent_responses.extend(new_responses[len(agent_responses):])
+                        logger.warning(f"Agent {agent_config['agent_name']} failed but continuing with other agents")
+                        # Continue with other agents instead of breaking
+                    elif result["status"] == "agent_not_found":
+                        await self._handle_error(result["error"])
                         break
-                    
-                    if agent_name == 'DashboardBuilder':
-                        await self._stream_update('thinking', 'Generating Dashboard...')
-                        dashboard_response = await self.create_dashboard(user_query, is_single_widget)
-                        if dashboard_response['type'] == 'error':
-                            return dashboard_response
-                        agent_responses.append({"agent_name": agent_name, "response": dashboard_response})
-                    
-                    elif agent_name in self.mcp_clients:  # Other MCPs
-                        # Get agent response with improved error handling
-                        response = await self._safe_execute_agent(agent_name, user_query, agent_responses)
-                        if response and response.success:
-                            json_resp = self.extract_and_fix_json(response.response)
-                            if json_resp:
-                                self.collected_datasets.append(str(json_resp))
-                                self.total_datasets += 1
-                            agent_responses.append({"agent_name": agent_name, "response": response.response})
-                        else:
-                            logger.warning(f"Agent {agent_name} failed: {response.error_message if response else 'Unknown error'}")
-                            # Continue with other agents instead of breaking
                 
                 # Process final responses with better error handling
                 return await self._process_final_responses(agent_responses, user_query, is_clarification_needed)
@@ -1611,6 +1934,30 @@ class MCPClientChatbot:
             
             # Execute agent
             response = await self._execute_agent(agent_name, updated_query)
+            
+            # Check if we got an approval request instead of a normal response
+            if isinstance(response, dict) and response.get("type") == "tool_approval_needed":
+                # Stream the approval request to the UI
+                await self._stream_update(
+                    "tool_approval_needed",
+                    f"Tool approval required for {agent_name}",
+                    extra={
+                        "interrupt_id": response["interrupt_id"],
+                        "reason": response["reason"],
+                        "agent_name": response["agent_name"],
+                        "query": response["query"],
+                        "pending_responses": response.get("pending_responses", [])
+                    }
+                )
+                
+                # Return a special response indicating approval is needed
+                return AgentResponse(
+                    agent_name, 
+                    response, 
+                    False, 
+                    "Tool approval required",
+                    {"approval_needed": True}
+                )
             
             if response:
                 return AgentResponse(agent_name, response, True)
@@ -1664,11 +2011,31 @@ class MCPClientChatbot:
     async def _process_final_responses(self, agent_responses: List[Dict], user_query: str, is_clarification_needed: bool) -> Dict[str, Any]:
         """Process final responses with improved error handling."""
         try:
+            # Check if any agent requires approval
+            for response in agent_responses:
+                if (hasattr(response, 'get') and 
+                    isinstance(response.get('response'), dict) and 
+                    response['response'].get('type') == 'tool_approval_needed'):
+                    
+                    approval_data = response['response']
+                    await self._stream_update(
+                        "tool_approval_needed",
+                        f"Tool approval required for {approval_data['agent_name']}",
+                        extra=approval_data
+                    )
+                    
+                    return {
+                        "type": "tool_approval_needed",
+                        "content": approval_data
+                    }
+            
             if agent_responses:
                 # Combine all agent responses
                 combined_response = "\n\n".join([
                     f"**{resp['agent_name']} Response:**\n{resp['response']}"
                     for resp in agent_responses
+                    if not (isinstance(resp.get('response'), dict) and 
+                           resp['response'].get('type') == 'tool_approval_needed')
                 ])
 
                 if is_clarification_needed:
@@ -1697,8 +2064,10 @@ class MCPClientChatbot:
                     can_answer = self.get_json_key(verifier_response_str, "can_answer") if verifier_response_str else None
                     if can_answer == 'yes':
                         # Generate business analysis report
-                        summary_response = await self._generate_business_analysis_report(combined_response, user_query)
-                        return summary_response
+                        summarize_response = quick_summarize(verifier_input, "", self.config.model.cheaper_model_id)
+                        await self._stream_update("content",summarize_response,is_partial=False)
+                        #summary_response = await self._generate_business_analysis_report(combined_response, user_query)
+                        return summarize_response
                     else:
                         # If the plan was approved but didn't resolve the query
                         await self._stream_update(
@@ -1760,7 +2129,10 @@ class MCPClientChatbot:
                 # Parse orchestrator response
                 orchestrator_response_str = str(orchestrator_response)
                 if "[" in orchestrator_response_str and "]" in orchestrator_response_str:
-                    json_response = json.loads("[" + f"{orchestrator_response_str.split("[")[1].split("]")[0]}" + "]")
+                    # Extract the JSON part between brackets
+                    start_bracket = orchestrator_response_str.split("[")[1]
+                    json_part = start_bracket.split("]")[0]
+                    json_response = json.loads("[" + json_part + "]")
                     
                     # Human in the loop confirmation (configurable)
                     if self.config.processing.require_human_confirmation:
@@ -1807,7 +2179,7 @@ class MCPClientChatbot:
         print("🛑 Stopping chatbot...")
 
     async def _execute_agent(self, agent_name: str, query: str) -> Optional[str]:
-        """Execute a specific agent and return its response."""
+        """Execute a specific agent and return its response, handling interrupts."""
         try:
             mcp_client = self.get_mcp_client(agent_name)
             if not mcp_client:
@@ -1822,74 +2194,133 @@ class MCPClientChatbot:
                     tools, 
                     self.mcp_clients[agent_name]["tools"]
                 )
-                response_stream = agent.stream_async(query)
-                full_response = ""
-                async for chunk in response_stream:
-                    full_response += await self.callback_handler(chunk)
-                return full_response
+                
+                # Execute agent with interrupt handling
+                # response_stream = agent.stream_async(query)
+                # result = ""
+                # async for chunk in response_stream:
+                #     result += await self.callback_handler(chunk)
+                
+                result = agent(query)
+                tool_executed_name = None
+                agent_resp = None
+                if hasattr(result, 'message') and result.message:
+                    # Fix: Access message attribute properly, not as dictionary
+                    if 'content' in result.message and result.message['content']:
+                        for payload in result.message['content']:
+                            if 'toolUse' in payload:
+                                tool_executed_name = payload['toolUse']['name']
+                            if 'text' in payload:
+                                agent_resp = payload['text']
+                
+                # Handle interrupts if they occur
+                while result.stop_reason == "interrupt":
+                    responses = []
+                    agent_msg = f"Agent {agent_name} executed tool {tool_executed_name} and here is the output {agent_resp}"
+                    responses.append({"agent_name": agent_name, "response": agent_msg})
+                    for interrupt in result.interrupts:
+                        if interrupt.name.endswith("-tool-approval"):
+                            # Check if this tool has been marked for "always approve"
+                            tool_name = interrupt.reason.get('tool_name', '')
+                            approval_key = f"{agent_name}-{tool_name}-approval"
+                            
+                            # Check agent's session state for "always" approvals
+                            if agent.state.get(approval_key) == "approved":
+                                logger.info(f"Tool {tool_name} has 'always approve' status, continuing execution")
+                                # Continue execution without interrupting the user
+                                interrupt.respond("always")
+                                continue
+                            
+                            # Check global approval cache for temporary "always" approvals
+                            from .hooks.approval_hooks import _approval_cache
+                            auto_approved = False
+                            
+                            for cache_interrupt_id, approval_data in list(_approval_cache.items()):
+                                # Check if this is an "always" approval for this specific tool or "any" tool
+                                if (approval_data.get('tool_name') in [tool_name, "any"] and 
+                                    approval_data.get('response', '').lower() in ["always", "a"]):
+                                    logger.info(f"Found 'always approve' cache entry for tool {tool_name}")
+                                    # Store in session state for future calls
+                                    agent.state.set(approval_key, "approved")
+                                    # Continue execution without interrupting the user
+                                    interrupt.respond("always")
+                                    auto_approved = True
+                                    break
+                            
+                            if auto_approved:
+                                continue
+                            
+                            # No auto-approval found, stream the approval request to the user
+                            await self._stream_approval_request(interrupt)
+                            
+                            # Return the interrupt to be handled by the UI
+                            # This follows the same pattern as orchestrator confirmation
+                            return {
+                                "type": "tool_approval_needed",
+                                "interrupt_id": interrupt.id,
+                                "reason": interrupt.reason,
+                                "agent_name": agent_name,
+                                "query": query,
+                                "pending_responses": responses
+                            }
+                    
+                    # This code should not be reached in the new flow
+                    # but kept for backward compatibility
+                    break
+                
+                # Process the final result
+                if hasattr(result, 'message') and result.message:
+                    return result.message
+                else:
+                    return str(result)
+                    
         except Exception as e:
             logger.error(f"Error executing agent {agent_name}: {e}")
             return None
+            
+    async def _stream_approval_request(self, interrupt):
+        """Stream approval request to the user interface."""
+        reason = interrupt.reason
+        
+        # Store the tool call information for later execution
+        if not hasattr(self, '_pending_tool_calls'):
+            self._pending_tool_calls = {}
+            
+        # Extract tool information from the interrupt reason
+        tool_name = reason.get('tool_name', 'Unknown')
+        tool_input = reason.get('tool_input', {})  # Get the actual tool input parameters
+        
+        # Store the tool call info using the interrupt ID
+        self._pending_tool_calls[interrupt.id] = {
+            'tool_name': tool_name,
+            'tool_input': tool_input,
+            'reason': reason
+        }
+        
+        logger.info(f"Stored tool call info for interrupt {interrupt.id}: {tool_name} with input: {tool_input}")
+        
+        approval_message = f"""
+🔐 **Approval Required**
+**Tool:** {reason.get('tool_name', 'Unknown')}
+**Risk Level:** {reason.get('risk_level', 'Unknown').upper()}
+**Summary:** {reason.get('summary', 'No summary available')}
+**Details:**
+"""
+        for key, value in reason.get('details', {}).items():
+            approval_message += f"- **{key.replace('_', ' ').title()}:** {value}\n"
+            
+        approval_message += "\n**Do you want to proceed with this operation?**"
+        
+        await self._stream_update("thinking", approval_message)
 
     async def _generate_business_analysis_report(self, combined_response: str, user_query: str) -> Dict[str, Any]:
         """Generate business analysis report with error handling."""
         try:
-            ba_summarizer_prompt = f"""You are a business analyst whose role is to provide actionable insights and recommendations based on data analysis.
-                **YOUR TASK**: Analyze the following data and provide a clear, actionable summary: {combined_response}
-                **OUTPUT REQUIREMENTS**:
-                1. **Executive Summary**: Provide a concise overview of key findings.
-                2. **Key Insights**: Extract the most important data points and what they mean for the business
-                3. **Actionable Recommendations**: Specific steps the business can take based on the data
-                4. **Risk Assessment**: Identify any concerning trends or issues that need attention
-                
-                **OUTPUT FORMAT**: Complete HTML document with the following specifications:
-                
-                **HTML STRUCTURE REQUIREMENTS**:
-                - Complete HTML5 document with DOCTYPE, head, and body tags
-                - Responsive design that works on desktop and mobile
-                - Professional header with "Powered by AWS" small font positioned on the top-left
-                - Clean, modern footer with contact information
-                - Main content area with proper sections for each requirement
-                
-                **STYLING REQUIREMENTS**:
-                - Use inline CSS or internal stylesheet (no external dependencies)
-                - Color scheme: AWS orange (#FF9900) and dark blue (#232F3E) as primary colors
-                - Clean, professional typography (Arial, Helvetica, or system fonts)
-                - Proper spacing, margins, and padding for readability
-                - Card-based layout for different sections
-                - Responsive grid system for content organization
-                
-                **CHART/VISUALIZATION REQUIREMENTS**:
-                - Include at least 2-3 data visualizations using Chart.js or similar library
-                - Charts should be: bar charts for comparisons, line charts for trends, pie charts for distributions
-                - Use CDN links for chart libraries
-                - Ensure charts are responsive and mobile-friendly
-                - Include proper labels, legends, and tooltips
-                
-                **CONTENT STRUCTURE**:
-                1. Header with "Powered by AWS" small font and suitable report title based on report content
-                2. Executive Summary section
-                3. Key Findings with data visualizations
-                4. Business Impact analysis
-                5. Immediate Action Items (prioritized list)
-                6. Risk Mitigation section
-                7. Footer with metadata
-                
-                **STRICT GUIDELINES**:
-                - DO NOT ask follow-up questions - work with the data provided
-                - DO NOT request additional context - analyze what you have
-                - FOCUS on actionable insights that can be implemented immediately
-                - Be specific and direct in your recommendations
-                - Quantify impact where possible using the available data
-                - Prioritize recommendations by urgency or business impact
-                - Generate complete, valid HTML that can be saved and opened in any browser
-                - Include sample data in charts if actual data visualization is not possible from provided data
-                
-                Provide ONLY the complete HTML code - no explanatory text before or after."""
-            
-            # Generate the HTML report using the custom_summarization_agent
-            html_report = self.custom_summarization_agent(ba_summarizer_prompt)
-            html_content = str(html_report)
+            # Use the response summarizer utility to generate the HTML report
+            html_content = self.response_summarizer.generate_business_analysis_report(
+                data=combined_response,
+                user_query=user_query
+            )
 
             try:
                 # Save the report to file using relative path

@@ -8,4 +8,7 @@ cdk.out/
 **/logs/**
 generated**
 **/generated**/**
-data_discovery_agent/frontend/src/index copy.css.bck
+*.log
+__pycache__
+data_discovery_agent/frontend/build/**
+data_discovery_agent/frontend/build/assets

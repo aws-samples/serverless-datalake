@@ -10,8 +10,9 @@ from pathlib import Path
 @dataclass
 class ModelConfig:
     """Configuration for AI models."""
+    #global.anthropic.claude-sonnet-4-5-20250929-v1:0
     primary_model_id: str = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    cheaper_model_id: str = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    cheaper_model_id: str = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
     max_tokens: int = 4000
     temperature: float = 0.1
 
@@ -30,6 +31,12 @@ class ProcessingConfig:
     require_human_confirmation: bool = True
     enable_parallel_execution: bool = False
     timeout_seconds: int = 300
+    
+    # Approval settings for tool execution
+    auto_approve_low_risk: bool = True
+    auto_approve_medium_risk: bool = False
+    auto_approve_high_risk: bool = False
+    approval_timeout_seconds: int = 300
 
 @dataclass
 class DashboardConfig:
@@ -86,7 +93,10 @@ class ChatbotConfig:
             ),
             processing=ProcessingConfig(
                 max_iterations=int(os.getenv('MAX_ITERATIONS', ProcessingConfig.max_iterations)),
-                require_human_confirmation=os.getenv('REQUIRE_CONFIRMATION', 'true').lower() == 'true'
+                require_human_confirmation=os.getenv('REQUIRE_CONFIRMATION', 'true').lower() == 'true',
+                auto_approve_low_risk=os.getenv('AUTO_APPROVE_LOW_RISK', 'true').lower() == 'true',
+                auto_approve_medium_risk=os.getenv('AUTO_APPROVE_MEDIUM_RISK', 'false').lower() == 'true',
+                auto_approve_high_risk=os.getenv('AUTO_APPROVE_HIGH_RISK', 'false').lower() == 'true'
             ),
             log_level=os.getenv('LOG_LEVEL', 'INFO'),
             debug_mode=os.getenv('DEBUG_MODE', 'false').lower() == 'true'
@@ -111,7 +121,11 @@ class ChatbotConfig:
                 'max_iterations': self.processing.max_iterations,
                 'require_human_confirmation': self.processing.require_human_confirmation,
                 'enable_parallel_execution': self.processing.enable_parallel_execution,
-                'timeout_seconds': self.processing.timeout_seconds
+                'timeout_seconds': self.processing.timeout_seconds,
+                'auto_approve_low_risk': self.processing.auto_approve_low_risk,
+                'auto_approve_medium_risk': self.processing.auto_approve_medium_risk,
+                'auto_approve_high_risk': self.processing.auto_approve_high_risk,
+                'approval_timeout_seconds': self.processing.approval_timeout_seconds
             },
             'dashboard': {
                 'output_directory': self.dashboard.output_directory,

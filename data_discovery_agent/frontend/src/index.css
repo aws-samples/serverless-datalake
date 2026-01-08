@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Special+Elite&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,34 +6,34 @@
 
 @layer base {
   body {
-    @apply bg-detective-paper text-detective-ink;
-    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='0.02'%3E%3Cpath d='M36 34h4v1h-4v-1zm0-2h1v5h-1v-5zm2-2h1v4h-1v-4zm-2 2h-1v1h2v-1h-1zm-2-2h5v1h-5v-1zm2-2h1v5h-1v-5z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    @apply bg-detective-50 text-detective-800;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   }
   
   h1, h2, h3, h4, h5, h6 {
-    @apply font-bold text-detective-800;
+    @apply font-semibold text-detective-900;
   }
   
-  .font-detective {
-    font-family: 'Special Elite', cursive;
+  .font-modern {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   }
 }
 
 @layer components {
   .chat-message {
-    @apply p-4 rounded-lg mb-4 max-w-4xl;
+    @apply p-4 rounded-xl mb-4 max-w-4xl;
   }
   
-  .case-file-heading {
-    @apply font-detective text-lg font-bold text-detective-800 border-b-2 border-detective-accent uppercase tracking-wider;
+  .modern-heading {
+    @apply font-semibold text-lg text-detective-900 border-b border-detective-200 pb-2 mb-4;
   }
   
   .user-message {
-    @apply bg-detective-accent text-white ml-auto shadow-detective;
+    @apply bg-detective-accent text-white ml-auto shadow-lg rounded-2xl;
   }
   
   .assistant-message {
-    @apply bg-detective-50 border border-detective-200 shadow-detective;
+    @apply bg-white border border-detective-200 shadow-sm rounded-2xl;
   }
   
   .typing-indicator {
@@ -45,40 +45,36 @@
   }
   
   .dashboard-card {
-    @apply bg-detective-50 rounded-lg shadow-detective border border-detective-200 p-6;
+    @apply bg-white rounded-xl shadow-sm border border-detective-200 p-6;
   }
   
   .sidebar-item {
-    @apply flex items-center px-4 py-2 text-sm font-medium text-detective-700 rounded-md hover:bg-detective-100 hover:text-detective-800 transition-colors;
+    @apply flex items-center px-4 py-3 text-sm font-medium text-detective-600 rounded-lg hover:bg-detective-100 hover:text-detective-800 transition-all duration-200;
   }
   
   .sidebar-item.active {
-    @apply bg-detective-200 text-detective-800 border-l-4 border-detective-accent;
+    @apply bg-detective-accent text-white shadow-sm;
   }
   
-  /* Detective theme components */
-  .clue-highlight {
-    @apply bg-detective-accent/20 border-l-4 border-detective-accent p-3 rounded-r-md;
+  /* Modern theme components */
+  .highlight-card {
+    @apply bg-detective-accent/5 border-l-4 border-detective-accent p-4 rounded-r-lg;
   }
   
-  .evidence-card {
-    @apply bg-detective-50 p-4 rounded-lg border border-detective-200 shadow-detective;
+  .info-card {
+    @apply bg-white p-4 rounded-xl border border-detective-200 shadow-sm;
   }
   
-  .magnifying-icon {
-    @apply text-detective-accent animate-magnify;
+  .modern-header {
+    @apply bg-white text-detective-900 shadow-sm border-b border-detective-200;
   }
   
-  .detective-header {
-    @apply bg-detective-100 text-detective-800 shadow-lg border-b border-detective-200;
+  .modern-button {
+    @apply bg-detective-accent hover:bg-detective-accent/90 text-white px-4 py-2 rounded-lg shadow-sm transition-all duration-200 font-medium;
   }
   
-  .detective-button {
-    @apply bg-detective-accent hover:bg-detective-accent/90 text-white px-4 py-2 rounded-md shadow-sm transition-colors;
-  }
-  
-  .detective-button-secondary {
-    @apply bg-detective-200 hover:bg-detective-300 text-detective-800 px-4 py-2 rounded-md shadow-sm transition-colors;
+  .modern-button-secondary {
+    @apply bg-detective-100 hover:bg-detective-200 text-detective-800 px-4 py-2 rounded-lg shadow-sm transition-all duration-200 font-medium;
   }
 }
 
@@ -88,16 +84,16 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #f8f9fa;
+  background: #f8fafc;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #adb5bd;
+  background: #cbd5e1;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #6c757d;
+  background: #94a3b8;
 }
 
 /* Code block styling */
@@ -106,7 +102,7 @@ pre {
 }
 
 code {
-  @apply bg-detective-200 text-detective-800 px-1 py-0.5 rounded text-sm;
+  @apply bg-detective-100 text-detective-800 px-2 py-1 rounded text-sm;
 }
 
 pre code {

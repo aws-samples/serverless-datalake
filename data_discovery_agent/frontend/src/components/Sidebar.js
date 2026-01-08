@@ -104,33 +104,39 @@ function Sidebar({ sidebarOpen, setSidebarOpen, windowWidth }) {
       <div 
         ref={sidebarRef}
         className={`
-        fixed inset-y-0 left-0 z-50 bg-detective-800 shadow-lg transform transition-all duration-300 ease-in-out flex flex-col overflow-hidden
+        fixed inset-y-0 left-0 z-50 bg-white shadow-xl transform transition-all duration-300 ease-in-out flex flex-col overflow-hidden border-r border-detective-200
         ${sidebarOpen ? 'w-64 translate-x-0' : 'w-16 translate-x-0'}
         lg:static lg:inset-0 lg:translate-y-0
       `}>
-        <div className="flex items-center justify-between h-16 px-4 border-b border-detective-700 bg-detective-800">
+        <div className="flex items-center justify-between h-16 px-4 border-b border-detective-200 bg-white">
           <div className="flex items-center">
             <div className="flex-shrink-0 flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-detective-accent mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="10" cy="10" r="7" />
-                <line x1="21" y1="21" x2="15" y2="15" />
-              </svg>
-              <h1 className={`text-xl font-bold text-white transition-opacity duration-300 ${
+              <div className="h-8 w-8 bg-detective-accent rounded-lg flex items-center justify-center mr-3">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 12l2 2 4-4"/>
+                  <path d="M21 12c-1 0-3-1-3-3s2-3 3-3 3 1 3 3-2 3-3 3"/>
+                  <path d="M3 12c1 0 3-1 3-3s-2-3-3-3-3 1-3 3 2 3 3 3"/>
+                  <path d="M12 3c0 1-1 3-3 3s-3-2-3-3 1-3 3-3 3 2 3 3"/>
+                  <path d="M12 21c0-1-1-3-3-3s-3 2-3 3 1 3 3 3 3-2 3-3"/>
+                </svg>
+              </div>
+              <div className={`transition-opacity duration-300 ${
                 sidebarOpen ? 'opacity-100' : 'opacity-0'
               }`}>
-                MCP Data Detective
-              </h1>
-
-              
-              
-
+                <h1 className="text-xl font-semibold text-detective-900">
+                  DataDiscovery Agent
+                </h1>
+                <p className="text-xs text-detective-500 -mt-1">
+                  Intelligent Data Analytics Platform
+                </p>
+              </div>
             </div>
           </div>
           <div className="flex items-center space-x-2">
             {/* Mobile close button */}
             <button
               onClick={() => setSidebarOpen(false)}
-              className="lg:hidden p-2 rounded-md text-detective-accent hover:text-detective-accent/80 hover:bg-detective-700"
+              className="lg:hidden p-2 rounded-md text-detective-500 hover:text-detective-700 hover:bg-detective-100"
             >
               <X className="h-6 w-6" />
             </button>
@@ -139,7 +145,7 @@ function Sidebar({ sidebarOpen, setSidebarOpen, windowWidth }) {
 
         <div className={`flex flex-col min-h-0 ${sidebarOpen ? 'overflow-y-auto' : 'overflow-hidden'}`}>
           {/* Navigation */}
-          <nav className="px-2 py-4 space-y-1">
+          <nav className="px-3 py-4 space-y-2">
             {navigation.map((item) => {
               const isActive = location.pathname === item.href;
               return (
@@ -147,10 +153,10 @@ function Sidebar({ sidebarOpen, setSidebarOpen, windowWidth }) {
                   key={item.name}
                   to={item.href}
                   className={`
-                    group flex items-center px-2 py-2 text-sm font-medium rounded-md transition-colors
+                    group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200
                     ${isActive 
-                      ? 'bg-detective-700 text-white border-l-2 border-detective-accent' 
-                      : 'text-gray-300 hover:bg-detective-700/50 hover:text-white'
+                      ? 'bg-detective-accent text-white shadow-sm' 
+                      : 'text-detective-600 hover:bg-detective-100 hover:text-detective-800'
                     }
                   `}
                   onClick={(e) => {
@@ -162,7 +168,7 @@ function Sidebar({ sidebarOpen, setSidebarOpen, windowWidth }) {
                   <item.icon className={`
                     h-5 w-5 flex-shrink-0
                     ${sidebarOpen ? 'mr-3' : 'mx-auto'}
-                    ${isActive ? 'text-detective-accent' : 'text-gray-400 group-hover:text-detective-accent/80'}
+                    ${isActive ? 'text-white' : 'text-detective-500 group-hover:text-detective-600'}
                   `} />
                   <span className={`transition-opacity duration-300 ${
                     sidebarOpen ? 'opacity-100' : 'opacity-0'
@@ -175,16 +181,16 @@ function Sidebar({ sidebarOpen, setSidebarOpen, windowWidth }) {
           </nav>
 
           {/* MCP Server Status */}
-          <div className={`border-t border-detective-700 transition-all duration-300 bg-detective-800 ${
+          <div className={`border-t border-detective-200 transition-all duration-300 bg-detective-50 ${
             sidebarOpen ? 'p-4' : 'p-2'
           }`}>
             
             {sidebarOpen && (
-            <div className={`flex items-center justify-between mb-1 ${
+            <div className={`flex items-center justify-between mb-3 ${
               !sidebarOpen ? 'justify-center' : ''
             }`}>
             
-              <h3 className={`text-xs font-semibold text-gray-300 uppercase tracking-wider transition-opacity duration-300 ${
+              <h3 className={`text-xs font-semibold text-detective-600 uppercase tracking-wider transition-opacity duration-300 ${
                 sidebarOpen ? 'opacity-100' : 'opacity-0'
               }`}>
                 MCP Servers
@@ -193,7 +199,7 @@ function Sidebar({ sidebarOpen, setSidebarOpen, windowWidth }) {
               <button
                 onClick={fetchMcpStatus}
                 disabled={isLoading}
-                className={`p-1 rounded-md text-detective-accent hover:text-detective-accent/80 hover:bg-detective-700 disabled:opacity-50 ${
+                className={`p-1.5 rounded-md text-detective-500 hover:text-detective-700 hover:bg-detective-100 disabled:opacity-50 ${
                   !sidebarOpen ? 'mx-auto' : ''
                 }`}
                 title="Refresh status"
@@ -201,7 +207,7 @@ function Sidebar({ sidebarOpen, setSidebarOpen, windowWidth }) {
                 <RefreshCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
               </button> 
             </div> )}
-            <div className="space-y-1">
+            <div className="space-y-2">
               {mcpServers.map((server) => (
                 <div key={server.id} className={`flex items-center justify-between ${
                   !sidebarOpen ? 'justify-center' : ''
@@ -213,14 +219,14 @@ function Sidebar({ sidebarOpen, setSidebarOpen, windowWidth }) {
                     <div className={`transition-opacity duration-300 ${
                       sidebarOpen ? 'opacity-100' : 'opacity-0'
                     }`}>
-                      <span className="text-sm text-gray-300">{server.name}</span>
-                      <div className="text-xs text-gray-400">Port {server.port}</div>
+                      <span className="text-sm text-detective-700 font-medium">{server.name}</span>
+                      <div className="text-xs text-detective-500">Port {server.port}</div>
                     </div>
                   </div>
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium transition-opacity duration-300 ${
                     server.status === 'connected' 
-                      ? 'bg-green-100 text-green-800' 
-                      : 'bg-red-100 text-red-800'
+                      ? 'bg-green-100 text-green-700' 
+                      : 'bg-red-100 text-red-700'
                   } ${sidebarOpen ? 'opacity-100' : 'opacity-0'}`}>
                     {server.status === 'connected' ? 'Connected' : 'Disconnected'}
                   </span>
@@ -228,7 +234,7 @@ function Sidebar({ sidebarOpen, setSidebarOpen, windowWidth }) {
               ))}
             </div>
             {sidebarOpen && lastUpdated && (
-              <div className={`mt-2 text-xs text-gray-400 transition-opacity duration-300 ${
+              <div className={`mt-3 text-xs text-detective-500 transition-opacity duration-300 ${
                 sidebarOpen ? 'opacity-100' : 'opacity-0'
               }`}>
                 Last updated: {lastUpdated.toLocaleTimeString()}
@@ -237,29 +243,15 @@ function Sidebar({ sidebarOpen, setSidebarOpen, windowWidth }) {
           </div>
 
           {/* Settings */}
-          <div className={`border-t border-detective-700 transition-all duration-300 bg-detective-800 ${
+          <div className={`border-t border-detective-200 transition-all duration-300 bg-white ${
             sidebarOpen ? 'p-4' : 'p-2'
           }`}>
-            {/* <Link
-              to="/settings"
-              className="group flex items-center px-2 py-2 text-sm font-medium text-gray-300 rounded-md hover:bg-detective-700/50 hover:text-white"
-              title={!sidebarOpen ? 'Settings' : ''}
-            >
-              <Settings className={`h-5 w-5 text-detective-accent group-hover:text-detective-accent/80 ${
-                sidebarOpen ? 'mr-3' : 'mx-auto'
-              }`} />
-              <span className={`transition-opacity duration-300 ${
-                sidebarOpen ? 'opacity-100' : 'opacity-0'
-              }`}>
-                Settings
-              </span>
-            </Link> */}
             
             {/* Toggle sidebar button at bottom */}
-            <div className="mt-4 flex bg-detective-800" style={{"justify-content":"right"}}>
+            <div className="mt-4 flex bg-white" style={{"justify-content":"right"}}>
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="p-2 rounded-md text-detective-accent hover:bg-detective-700 transition-colors"
+                className="p-2 rounded-lg text-detective-500 hover:bg-detective-100 hover:text-detective-700 transition-colors"
                 title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
               >
                 {sidebarOpen ? <ChevronLeft className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
@@ -273,7 +265,7 @@ function Sidebar({ sidebarOpen, setSidebarOpen, windowWidth }) {
       <div className="lg:hidden fixed top-4 left-4 z-50">
         <button
           onClick={() => setSidebarOpen(true)}
-          className="p-2 rounded-md text-detective-accent hover:text-detective-accent/80 bg-detective-800 shadow-lg"
+          className="p-2 rounded-lg text-detective-600 hover:text-detective-800 bg-white shadow-lg border border-detective-200"
         >
           <Menu className="h-6 w-6" />
         </button>

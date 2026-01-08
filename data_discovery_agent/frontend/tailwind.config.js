@@ -31,20 +31,20 @@ export default {
           900: '#0f172a',
         },
         detective: {
-          50: '#fefefe',      // Almost white
-          100: '#f8f9fa',     // Very light gray
-          200: '#e9ecef',     // Light gray
-          300: '#dee2e6',     // Medium light gray
-          400: '#ced4da',     // Medium gray
-          500: '#adb5bd',     // Neutral gray
-          600: '#6c757d',     // Medium dark gray
-          700: '#495057',     // Dark gray
-          800: '#343a40',     // Very dark gray
-          900: '#212529',     // Almost black
-          accent: '#0d6efd',  // Bright blue accent (lighter theme)
-          clue: '#dc3545',    // Red for highlights
+          50: '#f8fafc',      // Very light blue-gray
+          100: '#f1f5f9',     // Light blue-gray
+          200: '#e2e8f0',     // Medium light blue-gray
+          300: '#cbd5e1',     // Medium blue-gray
+          400: '#94a3b8',     // Medium gray
+          500: '#64748b',     // Neutral gray
+          600: '#475569',     // Medium dark gray
+          700: '#334155',     // Dark gray
+          800: '#1e293b',     // Very dark gray
+          900: '#0f172a',     // Almost black
+          accent: '#3b82f6',  // Modern blue accent
+          clue: '#ef4444',    // Red for highlights
           paper: '#ffffff',   // Pure white background
-          ink: '#212529',     // Dark text for readability
+          ink: '#1e293b',     // Dark text for readability
         }
       },
       backgroundImage: {

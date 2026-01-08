@@ -275,6 +275,19 @@ export function ChatProvider({ children }) {
         dispatch({ type: 'SET_LOADING', payload: false });
         break;
         
+      case 'tool_approval_needed':
+        dispatch({
+          type: 'UPDATE_LAST_MESSAGE',
+          payload: {
+            needsToolApproval: true,
+            toolApprovalData: data, // Use data directly, not data.extra
+            isLoading: false,
+          }
+        });
+        // Reset global loading state
+        dispatch({ type: 'SET_LOADING', payload: false });
+        break;
+        
       case 'error':
         dispatch({
           type: 'UPDATE_LAST_MESSAGE',
@@ -402,6 +415,55 @@ export function ChatProvider({ children }) {
     }
   };
   
+  const confirmToolApproval = async (approvalData, approvalResponse = 'approve') => {
+    try {
+      // Update the last message to show loading state
+      dispatch({
+        type: 'UPDATE_LAST_MESSAGE',
+        payload: {
+          needsToolApproval: false,
+          isLoading: true,
+          thinking: `Tool approval: ${approvalResponse}. Continuing execution...`
+        }
+      });
+      
+      // Send approval response via WebSocket
+      if (socketRef.current && socketRef.current.connected) {
+        socketRef.current.emit('tool_approval_response', {
+          agent_name: approvalData.agent_name,
+          query: approvalData.query,
+          interrupt_id: approvalData.interrupt_id,
+          approval_response: approvalResponse,
+          pending_responses: approvalData.pending_responses || [],
+          remaining_plan: approvalData.remaining_plan || [],
+          original_query: approvalData.original_query || ''
+        });
+      } else {
+        throw new Error('WebSocket not connected');
+      }
+    } catch (error) {
+      console.error('Error sending tool approval:', error);
+      dispatch({
+        type: 'UPDATE_LAST_MESSAGE',
+        payload: {
+          content: 'Sorry, I encountered an error processing your approval. Please try again.',
+          isLoading: false,
+          error: true,
+        }
+      });
+      dispatch({ type: 'SET_LOADING', payload: false });
+      toast.error('Failed to send tool approval');
+    }
+  };
+  
+  const rejectToolApproval = async (approvalData) => {
+    await confirmToolApproval(approvalData, 'deny');
+  };
+
+  const alwaysApproveToolApproval = async (approvalData) => {
+    await confirmToolApproval(approvalData, 'always');
+  };
+
   const rejectPlan = async (plan, original_query) => {
     // Update the last message to show rejection
     dispatch({
@@ -424,6 +486,9 @@ export function ChatProvider({ children }) {
     socketRef,
     confirmPlan,
     rejectPlan,
+    confirmToolApproval,
+    rejectToolApproval,
+    alwaysApproveToolApproval,
   };
 
   return (

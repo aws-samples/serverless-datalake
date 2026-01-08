@@ -496,27 +496,35 @@ const Dashboard = () => {
   return (
     <div className="p-4 relative">
       <div className="mb-6">
-        <div className="flex justify-between items-center mb-4 bg-detective-800 p-4 rounded-lg shadow-lg">
+        <div className="flex justify-between items-center mb-4 bg-white p-6 rounded-xl shadow-sm border border-detective-200">
           <div className="flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-detective-accent mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="10" cy="10" r="7" />
-              <line x1="21" y1="21" x2="15" y2="15" />
-            </svg>
-            <h1 className="text-2xl font-bold text-white">Evidence Dashboard</h1>
+            <div className="h-10 w-10 bg-detective-accent rounded-xl flex items-center justify-center mr-3">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 12l2 2 4-4"/>
+                <path d="M21 12c-1 0-3-1-3-3s2-3 3-3 3 1 3 3-2 3-3 3"/>
+                <path d="M3 12c1 0 3-1 3-3s-2-3-3-3-3 1-3 3 2 3 3 3"/>
+                <path d="M12 3c0 1-1 3-3 3s-3-2-3-3 1-3 3-3 3 2 3 3"/>
+                <path d="M12 21c0-1-1-3-3-3s-3 2-3 3 1 3 3 3 3-2 3-3"/>
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-2xl font-semibold text-detective-900">Analytics Dashboard</h1>
+              <p className="text-sm text-detective-600 mt-1">Interactive data visualizations and insights</p>
+            </div>
           </div>
-          <div className="flex space-x-2">
+          <div className="flex space-x-3">
             <button
               onClick={refreshWidgets}
-              className="bg-detective-accent hover:bg-detective-accent/90 text-detective-900 px-3 py-1 rounded text-sm flex items-center shadow-sm"
+              className="modern-button-secondary flex items-center"
               disabled={isLoadingWidgets}
             >
               {isLoadingWidgets ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                  <span>Investigating...</span>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  <span>Refreshing...</span>
                 </>
               ) : (
-                <span>Refresh Evidence</span>
+                <span>Refresh Widgets</span>
               )}
             </button>
           </div>
@@ -525,7 +533,7 @@ const Dashboard = () => {
         {/* Chat Panel Toggle Button */}
         <button
           onClick={toggleChatPanel}
-          className="fixed bottom-6 right-6 bg-detective-800 hover:bg-detective-700 text-detective-accent p-3 rounded-full shadow-lg z-10 flex items-center justify-center border-2 border-detective-accent"
+          className="fixed bottom-6 right-6 bg-detective-accent hover:bg-detective-accent/90 text-white p-4 rounded-full shadow-lg z-10 flex items-center justify-center"
         >
           {showChatPanel ? <X size={20} /> : <MessageSquare size={20} />}
         </button>
@@ -572,38 +580,48 @@ const Dashboard = () => {
       
       {/* Empty state */}
       {widgets.length === 0 && !isLoadingWidgets && !isLoading && (
-        <div className="text-center py-12 bg-detective-100 rounded-lg border border-detective-200 shadow-inner">
+        <div className="text-center py-16 bg-white rounded-xl border border-detective-200 shadow-sm">
           <div className="flex flex-col items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-detective-accent mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="10" cy="10" r="7" />
-              <line x1="21" y1="21" x2="15" y2="15" />
-            </svg>
-            <h3 className="text-lg font-bold text-detective-700 mb-2">No Evidence Collected Yet</h3>
-            <p className="text-detective-600 max-w-md">Start your investigation by asking the Data Detective to create visualizations of your data.</p>
+            <div className="h-16 w-16 bg-detective-accent/10 rounded-2xl flex items-center justify-center mb-6">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-detective-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 12l2 2 4-4"/>
+                <path d="M21 12c-1 0-3-1-3-3s2-3 3-3 3 1 3 3-2 3-3 3"/>
+                <path d="M3 12c1 0 3-1 3-3s-2-3-3-3-3 1-3 3 2 3 3 3"/>
+                <path d="M12 3c0 1-1 3-3 3s-3-2-3-3 1-3 3-3 3 2 3 3"/>
+                <path d="M12 21c0-1-1-3-3-3s-3 2-3 3 1 3 3 3 3-2 3-3"/>
+              </svg>
+            </div>
+            <h3 className="text-xl font-semibold text-detective-900 mb-2">No Widgets Yet</h3>
+            <p className="text-detective-600 max-w-md">Start creating interactive visualizations by asking the assistant to analyze your data.</p>
           </div>
         </div>
       )}
       
       {/* Chat Panel */}
-      <div className={`fixed right-0 top-0 h-full bg-white shadow-lg w-96 transition-transform duration-300 transform z-20 ${showChatPanel ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed right-0 top-0 h-full bg-white shadow-xl w-96 transition-transform duration-300 transform z-20 border-l border-detective-200 ${showChatPanel ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="flex flex-col h-full">
-          <div className="p-4 border-b flex justify-between items-center bg-detective-800 text-white">
-            <h3 className="font-semibold flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-detective-accent mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="10" cy="10" r="7" />
-                <line x1="21" y1="21" x2="15" y2="15" />
-              </svg>
-              <span>Detective Assistant</span>
+          <div className="p-4 border-b border-detective-200 flex justify-between items-center bg-white">
+            <h3 className="font-semibold flex items-center text-detective-900">
+              <div className="h-6 w-6 bg-detective-accent rounded-lg flex items-center justify-center mr-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 12l2 2 4-4"/>
+                  <path d="M21 12c-1 0-3-1-3-3s2-3 3-3 3 1 3 3-2 3-3 3"/>
+                  <path d="M3 12c1 0 3-1 3-3s-2-3-3-3-3 1-3 3 2 3 3 3"/>
+                  <path d="M12 3c0 1-1 3-3 3s-3-2-3-3 1-3 3-3 3 2 3 3"/>
+                  <path d="M12 21c0-1-1-3-3-3s-3 2-3 3 1 3 3 3 3-2 3-3"/>
+                </svg>
+              </div>
+              <span>Analytics Assistant</span>
             </h3>
             <div className="flex items-center space-x-2">
               <button 
                 onClick={clearChat} 
-                className="text-detective-900 hover:text-detective-800 text-xs bg-detective-accent px-2 py-1 rounded shadow-sm"
+                className="modern-button-secondary text-xs px-3 py-1"
                 title="Clear chat history"
               >
-                Clear Case
+                Clear Chat
               </button>
-              <button onClick={toggleChatPanel} className="text-white hover:text-gray-200">
+              <button onClick={toggleChatPanel} className="text-detective-500 hover:text-detective-700 p-1">
                 <X size={18} />
               </button>
             </div>
@@ -622,19 +640,19 @@ const Dashboard = () => {
           </div>
           
           {/* Sample Questions */}
-          <div className="p-3 border-t bg-detective-100">
-            <p className="text-xs text-detective-600 mb-2 font-medium">Investigation Leads:</p>
+          <div className="p-4 border-t border-detective-200 bg-detective-50">
+            <p className="text-xs text-detective-600 mb-3 font-medium">Quick Actions:</p>
             <div className="space-y-2">
               {[
-                "Investigate MySQL user distribution with a pie chart",
-                "Analyze cache performance patterns over time",
-                "Compile evidence of the top database queries",
-                "Track suspicious API response time patterns"
+                "Create a user distribution pie chart from MySQL",
+                "Analyze performance patterns over time",
+                "Show top database queries by frequency",
+                "Track API response time trends"
               ].map((question, index) => (
                 <button
                   key={index}
                   onClick={() => setChatMessage(question)}
-                  className="text-xs text-left w-full p-2 bg-white border border-detective-200 rounded hover:bg-detective-50 hover:border-detective-accent transition-colors shadow-sm"
+                  className="text-xs text-left w-full p-3 bg-white border border-detective-200 rounded-lg hover:bg-detective-50 hover:border-detective-accent transition-all duration-200 shadow-sm"
                 >
                   {question}
                 </button>
@@ -643,20 +661,20 @@ const Dashboard = () => {
           </div>
           
           {/* Chat Input */}
-          <div className="p-3 border-t bg-detective-800">
-            <form onSubmit={handleChatSubmit} className="flex">
+          <div className="p-4 border-t border-detective-200 bg-white">
+            <form onSubmit={handleChatSubmit} className="flex space-x-2">
               <input
                 type="text"
                 value={chatMessage}
                 onChange={(e) => setChatMessage(e.target.value)}
-                placeholder="Describe what evidence you need..."
-                className="flex-grow px-3 py-2 text-sm border border-detective-600 bg-detective-700 text-white rounded-l focus:outline-none focus:ring-1 focus:ring-detective-accent placeholder-gray-400"
+                placeholder="Ask me to create a visualization..."
+                className="flex-grow px-3 py-2 text-sm border border-detective-300 bg-white text-detective-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-detective-accent focus:border-detective-accent placeholder-detective-500"
                 disabled={isLoading}
               />
               <button
                 type="submit"
                 disabled={isLoading}
-                className="bg-detective-accent hover:bg-detective-accent/90 text-detective-900 px-3 py-2 rounded-r disabled:opacity-50 flex items-center justify-center"
+                className="modern-button px-3 py-2 disabled:opacity-50 flex items-center justify-center"
               >
                 {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send size={16} />}
               </button>

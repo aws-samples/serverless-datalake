@@ -4,28 +4,15 @@
       "name": "Athena",
       "description": "AWS Athena database query service for data lakes and analytics",
       "agent_type": "Database",
-      "output_location": "REPLACE_WITH_YOUR_S3_BUCKET_PATH",
+      "output_location": "s3://your-bucket-name/query-results/",
       "usage": "Query data lakes, list databases and tables, execute SQL queries on S3 data",
-      "url": "http://localhost:8001/sse",
+      "url": "http://localhost:8001/mcp",
       "rules_prompt": "You are an AWS Athena specialist. Use your tools to list databases, tables, and execute queries. Always provide catalog_name (default: AwsDataCatalog), database_name, and output_location for queries. For queries, you need an S3 output location like 's3://your-bucket/query-results/'. Only allow SELECT, SHOW, and DESCRIBE queries for security.",
-      "transportType": "sse"
-    },
-    "aws.dp-mcp": {
-      "name":"AWS Data Processing MCP",
-      "usage": "The AWS Data Processing MCP Server integrates deeply with AWS Glue for data cataloging and ETL operations, Amazon EMR for big data processing, and Athena for serverless analytics.",
-      "autoApprove": [],
-      "disabled": false,
-      "command": "uvx",
-      "args": [
-        "awslabs.aws-dataprocessing-mcp-server@latest",
-        "--allow-write"
-      ],
-      "env": {
-        "FASTMCP_LOG_LEVEL": "ERROR",
-        "AWS_REGION": "us-east-1"
-      },
-      "rules_prompt": "You are an AWS Data Processing specialist. Use your tools to list databases, tables, and schemas in AWS Glue data catalog. ",
-      "transportType": "stdio"
+      "transportType": "streamable_http",
+      "headers": {
+        "X-Athena-Output-Location": "TODO",
+        "X-Custom-Config": "athena-mcp-server"
+      }
     }
   }
 }

@@ -1,14 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from '../contexts/ChatContext';
-import { Send, Trash2, Bot, User, Loader2 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { tomorrow } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { Send, Trash2, Loader2 } from 'lucide-react';
 import ChatMessage from './ChatMessage';
 import ConnectionStatus from './ConnectionStatus';
 import TabSessionIndicator from './TabSessionIndicator';
-import SherlockAvatar from './SherlockAvatar';
-import CaseFileText from './CaseFileText';
 
 function ChatInterface() {
   const { 
@@ -17,7 +12,6 @@ function ChatInterface() {
     isConnected, 
     sendMessage, 
     clearMessages,
-    availableTools,
     checkConnection,
     socketRef 
   } = useChat();
@@ -55,7 +49,7 @@ function ChatInterface() {
     }
   };
 
-  const handleKeyPress = (e) => {
+  const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
@@ -82,8 +76,9 @@ function ChatInterface() {
   };
 
   const exampleQueries = [
-    "Investigate all tables in the MySQL database",
-    "Which devices are currently online ?",
+    "Investigate all tables in the Athena",
+    "Give me the schema of the iceberg_employees table in apache_iceberg database on Athena",
+    "Get me a count of employees in the iceberg_employees table",
     "Give me a status report on dispensers across all sites",
     "How many records are in the products table? I need evidence.",
     "Give me all data points on serverless-rag-demo repo under aws-samples org on Github",
@@ -93,18 +88,26 @@ function ChatInterface() {
   ];
 
   return (
-    <div className="flex flex-col h-full bg-detective-paper bg-detective-pattern">
+    <div className="flex flex-col h-full bg-detective-50">
       {/* Header */}
-      <div className="detective-header px-3 py-1">
+      <div className="modern-header px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center">
-            <div className="mr-3 text-detective-accent">
-              <SherlockAvatar className="h-10 w-10" />
+            <div className="mr-4">
+              <div className="h-12 w-12 bg-detective-accent rounded-xl flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 12l2 2 4-4"/>
+                  <path d="M21 12c-1 0-3-1-3-3s2-3 3-3 3 1 3 3-2 3-3 3"/>
+                  <path d="M3 12c1 0 3-1 3-3s-2-3-3-3-3 1-3 3 2 3 3 3"/>
+                  <path d="M12 3c0 1-1 3-3 3s-3-2-3-3 1-3 3-3 3 2 3 3"/>
+                  <path d="M12 21c0-1-1-3-3-3s-3 2-3 3 1 3 3 3 3-2 3-3"/>
+                </svg>
+              </div>
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white">MCP Data Detective</h1>
-              <p className="text-sm text-gray-300">
-                Analyze multiple data sources. Uncover hidden insights.
+              <h1 className="text-2xl font-semibold text-detective-900">DataDiscovery Agent</h1>
+              <p className="text-sm text-detective-600 mt-1">
+                Intelligent data analytics and insights platform
               </p>
             </div>
           </div>
@@ -113,7 +116,7 @@ function ChatInterface() {
             <ConnectionStatus isConnected={isConnected} />
             <button
               onClick={handleClearChat}
-              className="flex items-center px-3 py-2 text-sm font-medium text-detective-900 bg-detective-accent border border-detective-accent/50 rounded-md hover:bg-detective-accent/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-detective-accent"
+              className="modern-button-secondary flex items-center"
             >
               <Trash2 className="h-4 w-4 mr-2" />
               Clear Chat
@@ -123,26 +126,34 @@ function ChatInterface() {
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-6 bg-detective-paper/80">
+      <div className="flex-1 overflow-y-auto p-6 bg-detective-50">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-20 h-20 bg-detective-accent/20 rounded-full flex items-center justify-center mb-4">
-              <SherlockAvatar className="h-14 w-14 text-detective-accent" />
+            <div className="w-20 h-20 bg-detective-accent/10 rounded-2xl flex items-center justify-center mb-6">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-detective-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 12l2 2 4-4"/>
+                <path d="M21 12c-1 0-3-1-3-3s2-3 3-3 3 1 3 3-2 3-3 3"/>
+                <path d="M3 12c1 0 3-1 3-3s-2-3-3-3-3 1-3 3 2 3 3 3"/>
+                <path d="M12 3c0 1-1 3-3 3s-3-2-3-3 1-3 3-3 3 2 3 3"/>
+                <path d="M12 21c0-1-1-3-3-3s-3 2-3 3 1 3 3 3 3-2 3-3"/>
+              </svg>
             </div>
-            <h3 className="text-lg font-bold text-detective-800 mb-2">
-              Welcome to the MCP Data Detective Agency!
+            <h3 className="text-xl font-semibold text-detective-900 mb-2">
+              Welcome to DataDiscovery Agent
             </h3>
-            <CaseFileText />
+            <p className="text-detective-600 mb-8 max-w-md">
+              Your intelligent data analytics companion. Ask questions about your data sources and get comprehensive insights.
+            </p>
             
             {/* Example Queries */}
-            <div className="w-full max-w-2xl">
-              <h4 className="text-sm font-medium text-gray-700 mb-3">Try these examples:</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div className="w-full max-w-4xl">
+              <h4 className="text-sm font-medium text-detective-700 mb-4">Try these examples:</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {exampleQueries.map((query, index) => (
                   <button
                     key={index}
                     onClick={() => setInputValue(query)}
-                    className="text-left p-3 text-sm text-detective-600 bg-white border border-gray-200 rounded-lg hover:border-detective-accent hover:bg-detective-50 transition-colors"
+                    className="text-left p-4 text-sm text-detective-700 bg-white border border-detective-200 rounded-xl hover:border-detective-accent hover:bg-detective-50 transition-all duration-200 shadow-sm hover:shadow-md"
                   >
                     {query}
                   </button>
@@ -157,16 +168,16 @@ function ChatInterface() {
                 <ChatMessage key={message.id || `message-${index}`} message={message} />
               ))
             ) : (
-              <div className="text-center text-gray-500 py-8">
+              <div className="text-center text-detective-500 py-8">
                 <p>No messages to display</p>
               </div>
             )}
             
             {/* Typing indicator */}
             {isTyping && (
-              <div className="flex items-center space-x-2 p-4 bg-white/90 border border-detective-accent/30 rounded-lg shadow-detective">
+              <div className="flex items-center space-x-3 p-4 bg-white border border-detective-200 rounded-2xl shadow-sm">
                 <Loader2 className="h-5 w-5 text-detective-accent animate-spin" />
-                <span className="text-detective-600">Investigating your request...</span>
+                <span className="text-detective-600">Analyzing your request...</span>
               </div>
             )}
             
@@ -176,16 +187,16 @@ function ChatInterface() {
       </div>
 
       {/* Input Area */}
-      <div className="bg-detective-800 border-t border-detective-700 p-3">
-        <form onSubmit={handleSubmit} className="flex space-x-2">
+      <div className="bg-white border-t border-detective-200 p-4">
+        <form onSubmit={handleSubmit} className="flex space-x-3">
           <div className="flex-1">
             <textarea
               ref={inputRef}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Describe your investigation or what evidence you're looking for..."
-              className="w-full px-4 py-3 border border-detective-600 bg-detective-700 text-white rounded-lg focus:ring-2 focus:ring-detective-accent focus:border-detective-accent resize-none placeholder-gray-400"
+              onKeyDown={handleKeyDown}
+              placeholder="Ask me anything about your data..."
+              className="w-full px-4 py-3 border border-detective-300 bg-white text-detective-900 rounded-xl focus:ring-2 focus:ring-detective-accent focus:border-detective-accent resize-none placeholder-detective-500"
               rows="1"
               disabled={isLoading || !isConnected}
               style={{ minHeight: '48px', maxHeight: '120px' }}
@@ -194,7 +205,7 @@ function ChatInterface() {
           <button
             type="submit"
             disabled={!inputValue.trim() || isLoading || !isConnected}
-            className="px-6 py-3 bg-detective-accent text-detective-900 rounded-lg hover:bg-detective-accent/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-detective-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="modern-button px-6 py-3 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin" />

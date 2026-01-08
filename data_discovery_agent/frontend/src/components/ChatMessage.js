@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bot, User, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { User, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -9,10 +9,10 @@ import ChartWidget from './ChartWidget';
 import StreamingIndicator from './StreamingIndicator';
 import ThinkingProcess from './ThinkingProcess';
 import PlanConfirmationDialog from './PlanConfirmationDialog';
+import ToolApprovalDialog from './ToolApprovalDialog';
 import HTMLContentRenderer from './HTMLContentRenderer';
 import { useChat } from '../contexts/ChatContext';
 import axios from 'axios';
-import SherlockAvatar from './SherlockAvatar';
 
 // Dashboard renderer component
 function DashboardRenderer({ filename, metadata }) {
@@ -299,8 +299,8 @@ class SafeReactMarkdown extends React.Component {
 }
 
 function ChatMessage({ message }) {
-  // Get the confirmPlan and rejectPlan functions from context
-  const { confirmPlan, rejectPlan } = useChat();
+  // Get the confirmPlan, rejectPlan, and tool approval functions from context
+  const { confirmPlan, rejectPlan, confirmToolApproval, rejectToolApproval, alwaysApproveToolApproval } = useChat();
   
   // Validate message object
   if (!message || typeof message !== 'object') {
@@ -324,7 +324,24 @@ function ChatMessage({ message }) {
     if (message.plan && message.originalQuery) {
       rejectPlan(message.plan, message.originalQuery);
     }
-    
+  };
+
+  const handleConfirmToolApproval = () => {
+    if (message.toolApprovalData) {
+      confirmToolApproval(message.toolApprovalData);
+    }
+  };
+
+  const handleRejectToolApproval = () => {
+    if (message.toolApprovalData) {
+      rejectToolApproval(message.toolApprovalData);
+    }
+  };
+
+  const handleAlwaysApproveToolApproval = () => {
+    if (message.toolApprovalData) {
+      alwaysApproveToolApproval(message.toolApprovalData);
+    }
   };
 
   const formatTimestamp = (timestamp) => {
@@ -444,8 +461,18 @@ function ChatMessage({ message }) {
           />
         )}
         
+        {/* Tool Approval Dialog */}
+        {message.needsToolApproval && message.toolApprovalData && (
+          <ToolApprovalDialog 
+            approvalData={message.toolApprovalData} 
+            onApprove={handleConfirmToolApproval} 
+            onDeny={handleRejectToolApproval} 
+            onAlwaysApprove={handleAlwaysApproveToolApproval}
+          />
+        )}
+        
         {/* Markdown content */}
-        {(!message.needsConfirmation || message.content) && (
+        {(!message.needsConfirmation && !message.needsToolApproval) || message.content ? (
           <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-ul:text-gray-700 prose-ol:text-gray-700 prose-li:text-gray-700 prose-strong:text-gray-900 prose-em:text-gray-700">
             {message.content && typeof message.content === 'string' ? (
               <SafeReactMarkdown>
@@ -455,13 +482,13 @@ function ChatMessage({ message }) {
               <div className="text-gray-600 whitespace-pre-wrap">
                 {String(message.content)}
               </div>
-            ) : !message.needsConfirmation && (
+            ) : (!message.needsConfirmation && !message.needsToolApproval) && (
               <div className="text-gray-400 italic">
                 No content available
               </div>
             )}
           </div>
-        )}
+        ) : null}
 
         {/* Data table if present */}
         {message.data && (
@@ -532,29 +559,35 @@ function ChatMessage({ message }) {
         <div className={`flex-shrink-0 ${isUser ? 'ml-3' : 'mr-3'}`}>
           <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
             isUser 
-              ? 'bg-detective-700 text-white' 
-              : 'bg-detective-accent/20 text-detective-accent'
+              ? 'bg-detective-accent text-white' 
+              : 'bg-detective-100 text-detective-600'
           }`}>
             {isUser ? (
               <User className="h-4 w-4" />
             ) : (
-              <SherlockAvatar className="h-5 w-5" />
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 12l2 2 4-4"/>
+                <path d="M21 12c-1 0-3-1-3-3s2-3 3-3 3 1 3 3-2 3-3 3"/>
+                <path d="M3 12c1 0 3-1 3-3s-2-3-3-3-3 1-3 3 2 3 3 3"/>
+                <path d="M12 3c0 1-1 3-3 3s-3-2-3-3 1-3 3-3 3 2 3 3"/>
+                <path d="M12 21c0-1-1-3-3-3s-3 2-3 3 1 3 3 3 3-2 3-3"/>
+              </svg>
             )}
           </div>
         </div>
 
         {/* Message content */}
         <div className={`flex-1 ${isUser ? 'text-right' : 'text-left'}`}>
-          <div className={`inline-block p-4 rounded-lg ${
+          <div className={`inline-block p-4 rounded-2xl ${
             isUser 
-              ? 'bg-detective-700 text-white shadow-detective' 
-              : 'bg-white/90 border border-detective-200 shadow-detective'
+              ? 'bg-detective-accent text-white shadow-sm' 
+              : 'bg-white border border-detective-200 shadow-sm'
           }`}>
             {renderContent()}
           </div>
           
           {/* Timestamp */}
-          <div className={`mt-2 text-xs text-gray-500 ${isUser ? 'text-right' : 'text-left'}`}>
+          <div className={`mt-2 text-xs text-detective-500 ${isUser ? 'text-right' : 'text-left'}`}>
             {formatTimestamp(message.timestamp)}
           </div>
         </div>

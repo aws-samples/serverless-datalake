@@ -6,11 +6,16 @@ import json
 import logging
 import boto3
 import time
+import os
 from typing import Optional, Dict, Any, List
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from botocore.exceptions import ClientError, BotoCoreError
 
+# Get logger for this module
 logger = logging.getLogger(__name__)
+
+# Log startup information
+logger.info("Initializing Athena MCP Server")
 
 mcp = FastMCP(
     "athena-mcp-server",
@@ -18,18 +23,28 @@ mcp = FastMCP(
     # AWS Athena MCP Server
     This server provides tools to interact with AWS Athena for querying data lakes and databases.
     It supports listing databases, tables, executing queries, and managing query executions.
-""",
-    host="0.0.0.0",
-    port=8001,
-)
+""")
 
-# Initialize Athena client
+logger.info("FastMCP server instance created")
+
+# Initialize Athena client and get configuration
 try:
+    logger.info("Initializing AWS Athena client...")
     athena_client = boto3.client('athena')
     logger.info("AWS Athena client initialized successfully")
+    
+    # Get default output location from environment variable
+    # STOP_GAP till we get HTTP HEADERS working
+    DEFAULT_OUTPUT_LOCATION = os.getenv('DEFAULT_S3_OUTPUT_LOCATION', '')
+    if DEFAULT_OUTPUT_LOCATION:
+        logger.info(f"Using default output location: {DEFAULT_OUTPUT_LOCATION}")
+    else:
+        logger.warning("No default output location set. Queries will require explicit output_location parameter.")
+        
 except Exception as e:
     logger.error(f"Failed to initialize Athena client: {e}")
     athena_client = None
+    DEFAULT_OUTPUT_LOCATION = ''
 
 
 @mcp.tool()
@@ -54,6 +69,35 @@ async def test_athena_connection() -> str:
     except Exception as e:
         print(f"❌ Athena connection error: {str(e)}")
         return f"❌ Athena connection error: {str(e)}"
+
+
+@mcp.tool()
+async def get_athena_config() -> str:
+    """
+    Get the current Athena MCP server configuration.
+
+    Returns:
+        str: JSON formatted configuration information
+    """
+    print("⚙️ GET_ATHENA_CONFIG called")
+    logger.info("GET_ATHENA_CONFIG called")
+    try:
+        config = {
+            "default_output_location": DEFAULT_OUTPUT_LOCATION,
+            "athena_client_initialized": athena_client is not None,
+            "environment_variables": {
+                "DEFAULT_S3_OUTPUT_LOCATION": os.getenv('DEFAULT_S3_OUTPUT_LOCATION', 'Not set'),
+                "AWS_REGION": os.getenv('AWS_REGION', 'Not set'),
+                "AWS_DEFAULT_REGION": os.getenv('AWS_DEFAULT_REGION', 'Not set')
+            }
+        }
+        
+        print(f"✅ Configuration retrieved successfully")
+        return json.dumps(config, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting configuration: {e}")
+        print(f"❌ Error getting configuration: {str(e)}")
+        return f"❌ Error getting configuration: {str(e)}"
 
 
 @mcp.tool()
@@ -273,7 +317,6 @@ async def get_athena_table_metadata(
 async def execute_athena_query(
     query: str,
     database_name: str,
-    output_location: str,
     catalog_name: str = "AwsDataCatalog",
     workgroup: str = "primary",
     limit: Optional[int] = 100
@@ -284,7 +327,6 @@ async def execute_athena_query(
     Args:
         query (str): SQL query to execute
         database_name (str): Database to execute the query against
-        output_location (str): S3 location for query results (e.g., s3://bucket/path/)
         catalog_name (str): Data catalog name (default: AwsDataCatalog)
         workgroup (str): Athena workgroup (default: primary)
         limit (int, optional): Maximum number of rows to return (default: 100)
@@ -297,6 +339,12 @@ async def execute_athena_query(
     try:
         if not athena_client:
             return "❌ Athena client not initialized"
+        
+        # Use default output location if not provided
+        output_location = DEFAULT_OUTPUT_LOCATION
+            
+        if not output_location:
+            return "❌ No output location provided and no default configured. Please provide an S3 output location (e.g., s3://bucket/path/) by setting DEFAULT_S3_OUTPUT_LOCATION environment variable"
         
         # Security check - only allow SELECT queries
         query_upper = query.strip().upper()
@@ -592,7 +640,13 @@ async def get_athena_database_summary(catalog_name: str = "AwsDataCatalog") -> s
 
 
 def main():
-    mcp.run(transport="sse")
+    logger.info("Starting Athena MCP Server with Streamable HTTP transport")
+    logger.info("Server will be available at http://localhost:8001/mcp")
+    try:
+        mcp.run(transport="streamable-http", host="0.0.0.0", port=8001)
+    except Exception as e:
+        logger.error(f"Error running MCP server: {e}")
+        raise
 
 
 if __name__ == "__main__":

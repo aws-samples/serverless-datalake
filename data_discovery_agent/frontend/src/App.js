@@ -27,7 +27,7 @@ function App() {
     <Router>
       <ChatProvider>
         <DashboardProvider>
-          <div className="h-screen flex bg-detective-paper">
+          <div className="h-screen flex bg-detective-50">
             <Sidebar 
               sidebarOpen={sidebarOpen} 
               setSidebarOpen={setSidebarOpen} 
