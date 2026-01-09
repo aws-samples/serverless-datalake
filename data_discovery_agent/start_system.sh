@@ -278,7 +278,7 @@ echo -e "\n${GREEN}🎉 MCP Dashboard System is ready!${NC}"
 echo -e "${BLUE}================================${NC}"
 echo -e "${GREEN}Frontend:${NC} http://localhost:3000"
 echo -e "${GREEN}Backend API:${NC} http://localhost:5000"
-echo -e "${GREEN}Athena MCP:${NC} http://localhost:8001/sse"
+echo -e "${GREEN}Athena MCP:${NC} http://localhost:8001/mcp"
 
 if [ "$SHOW_LOGS" = true ]; then
     echo -e "\n${BLUE}📋 Showing real-time logs (Press Ctrl+C to stop all services):${NC}"

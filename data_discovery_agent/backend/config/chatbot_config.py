@@ -12,7 +12,7 @@ class ModelConfig:
     """Configuration for AI models."""
     #global.anthropic.claude-sonnet-4-5-20250929-v1:0
     primary_model_id: str = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    cheaper_model_id: str = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    cheaper_model_id: str = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
     max_tokens: int = 4000
     temperature: float = 0.1
 

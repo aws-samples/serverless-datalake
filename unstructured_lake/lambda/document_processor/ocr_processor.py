@@ -28,7 +28,7 @@ class OCRProcessor:
         self.logger = logging.getLogger(__name__)
         self.bedrock_runtime = boto3.client('bedrock-runtime', region_name=region)
         # Use Claude 4.5 for OCR capabilities
-        self.ocr_model_id = os.environ.get('OCR_MODEL_ID', 'global.anthropic.claude-sonnet-4-5-20250929-v1:0')
+        self.ocr_model_id = os.environ.get('OCR_MODEL_ID', 'global.anthropic.claude-haiku-4-5-20251001-v1:0')
     
     def perform_ocr(self, image_data: bytes, image_format: str = "JPEG") -> str:
         """
