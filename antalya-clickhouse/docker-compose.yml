@@ -123,7 +123,7 @@ configs:
     content: |
       uri: jdbc:sqlite:file:/var/lib/ice-rest-catalog/db.sqlite?journal_mode=WAL&synchronous=OFF&journal_size_limit=500
       #warehouse: s3://workshop-data-145023096371-us-east-1
-      warehouse: s3://workshop-data-145023096371-us-east-1
+      warehouse: YOUR_BUCKET/warehouse
       s3:
         endpoint: http://minio:9000
         pathStyleAccess: true
@@ -141,7 +141,7 @@ configs:
       spark.sql.catalog.default.uri             http://ice-rest-catalog:5000
       spark.sql.catalog.default.header.authorization bearer foo
       spark.sql.catalog.default.io-impl         org.apache.iceberg.aws.s3.S3FileIO
-      spark.sql.catalog.default.warehouse       s3://workshop-data-145023096371-us-east-1
+      spark.sql.catalog.default.warehouse       YOUR_BUCKET/warehouse
       spark.sql.catalog.default.s3.endpoint     http://minio:9000
       spark.sql.catalog.default.s3.path-style-access true
       spark.sql.catalog.default.s3.access-key   YOUR_AWS_ACCESS_KEY
