@@ -79,7 +79,7 @@ function ChatInterface() {
     "Investigate all tables in the Athena",
     "Give me the schema of the iceberg_employees table in apache_iceberg database on Athena",
     "Get me a count of employees in the iceberg_employees table",
-    "Give me a status report on dispensers across all sites",
+    "List my vector buckets and indexes",
     "How many records are in the products table? I need evidence.",
     "Give me all data points on serverless-rag-demo repo under aws-samples org on Github",
     "Create a detailed report of the MySQL database structure",

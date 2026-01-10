@@ -13,6 +13,8 @@ kill_port() {
     fi
 }
 
-# Kill any existing process on port 5000
-kill_port 5000
-kill_port 3000
+# Kill processes on all used ports
+kill_port 8001  # Athena MCP
+kill_port 8002  # S3 Vectors MCP
+kill_port 5001  # Flask Backend
+kill_port 3000  # React Frontend

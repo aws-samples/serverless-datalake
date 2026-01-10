@@ -49,5 +49,5 @@
     "test:ui": "vitest --ui",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
-  "proxy": "http://localhost:5000"
+  "proxy": "http://localhost:5001"
 }

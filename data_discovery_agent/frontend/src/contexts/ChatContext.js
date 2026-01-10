@@ -64,7 +64,7 @@ export function ChatProvider({ children }) {
   // Initialize WebSocket connection
   useEffect(() => {
     // Connect to WebSocket server using the tab session manager
-    socketRef.current = tabSessionManager.connectSocket('http://localhost:5000', {
+    socketRef.current = tabSessionManager.connectSocket('http://localhost:5001', {
       transports: ['websocket', 'polling'],
       timeout: 20000,
       reconnection: true,

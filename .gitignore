@@ -11,3 +11,4 @@ generated**
 *.log
 __pycache__
 /data_discovery_agent/frontend/build
+data_discovery_agent/frontend/build/index.html

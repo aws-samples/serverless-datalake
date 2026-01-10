@@ -18,7 +18,8 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo ""
     echo "Services:"
     echo "  - Athena MCP (port 8001)"
-    echo "  - Flask Backend (port 5000)"
+    echo "  - S3 Vectors MCP (port 8002)"
+    echo "  - Flask Backend (port 5001)"
     echo "  - React Frontend (port 3000)"
     echo ""
     exit 0
@@ -97,9 +98,14 @@ if [ ! -d "frontend" ]; then
     exit 1
 fi
 
-# Check if Athena MCP startup script exists
+# Check if MCP startup scripts exist
 if [ ! -f "backend/start_athena_mcp.py" ]; then
     echo -e "${RED}❌ Athena MCP startup script not found${NC}"
+    exit 1
+fi
+
+if [ ! -f "backend/start_s3vectors_mcp.py" ]; then
+    echo -e "${RED}❌ S3 Vectors MCP startup script not found${NC}"
     exit 1
 fi
 
@@ -214,6 +220,7 @@ cleanup() {
     
     # Stop main services
     stop_service "athena-mcp-server"
+    stop_service "s3vectors-mcp-server"
     stop_service "flask-backend"
     stop_service "react-frontend"
     echo -e "${GREEN}✅ All services stopped${NC}"
@@ -224,10 +231,11 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 # Start MCP Servers
-echo -e "\n${BLUE}📡 Starting Athena MCP Server...${NC}"
+echo -e "\n${BLUE}📡 Starting MCP Servers...${NC}"
 
-# Kill any existing process on port 8001
+# Kill any existing processes on MCP ports
 kill_port 8001
+kill_port 8002
 
 # Start Athena MCP Server
 cd backend
@@ -244,26 +252,39 @@ else
 fi
 
 echo $! > "logs/athena-mcp-server.pid"
+
+# Start S3 Vectors MCP Server
+echo -e "${BLUE}Starting s3vectors-mcp-server...${NC}"
+
+if [ "$SHOW_LOGS" = true ]; then
+    # Start the service and show logs in real-time
+    eval "PYTHONLOG=$LOGGING_LEVEL python start_s3vectors_mcp.py 2>&1 | tee logs/s3vectors-mcp-server.log &"
+else
+    # Start the service and redirect output to log file only
+    eval "PYTHONLOG=$LOGGING_LEVEL python start_s3vectors_mcp.py > logs/s3vectors-mcp-server.log 2>&1 &"
+fi
+
+echo $! > "logs/s3vectors-mcp-server.pid"
 cd ..
 
-# Wait for Athena MCP server to be ready
+# Wait for MCP servers to be ready
 wait_for_service 8001 "Athena MCP Server"
+wait_for_service 8002 "S3 Vectors MCP Server"
 
-
-echo -e "${GREEN}✅ Athena MCP Server is running${NC}"
+echo -e "${GREEN}✅ MCP Servers are running${NC}"
 
 # Start Flask Backend
 echo -e "\n${BLUE}🔧 Starting Flask Backend...${NC}"
 
-# Kill any existing process on port 5000
-kill_port 5000
+# Kill any existing process on port 5001
+kill_port 5001
 kill_port 3000
 cd backend
 start_service "flask-backend" "PYTHONLOG=$LOGGING_LEVEL python app.py"
 cd ..
 
 # Wait for backend to be ready
-wait_for_service 5000 "Flask Backend"
+wait_for_service 5001 "Flask Backend"
 
 # Start React Frontend
 echo -e "\n${BLUE}🎨 Starting React Frontend...${NC}"
@@ -277,8 +298,9 @@ wait_for_service 3000 "React Frontend"
 echo -e "\n${GREEN}🎉 MCP Dashboard System is ready!${NC}"
 echo -e "${BLUE}================================${NC}"
 echo -e "${GREEN}Frontend:${NC} http://localhost:3000"
-echo -e "${GREEN}Backend API:${NC} http://localhost:5000"
+echo -e "${GREEN}Backend API:${NC} http://localhost:5001"
 echo -e "${GREEN}Athena MCP:${NC} http://localhost:8001/mcp"
+echo -e "${GREEN}S3 Vectors MCP:${NC} http://localhost:8002/mcp"
 
 if [ "$SHOW_LOGS" = true ]; then
     echo -e "\n${BLUE}📋 Showing real-time logs (Press Ctrl+C to stop all services):${NC}"
@@ -295,13 +317,17 @@ if [ "$SHOW_LOGS" = true ]; then
         fi
     done
     
-    # Check for Athena MCP server log (in backend/logs/)
+    # Check for Athena and S3 Vectors MCP server logs (in backend/logs/)
     if [ -f "backend/logs/athena-mcp-server.log" ]; then
         log_files+=("backend/logs/athena-mcp-server.log")
     fi
     
+    if [ -f "backend/logs/s3vectors-mcp-server.log" ]; then
+        log_files+=("backend/logs/s3vectors-mcp-server.log")
+    fi
+    
     # Check for existing backend logs
-    for existing_log in "logs/backend.log" "logs/database_mcp_clients.log" "logs/athena_mcp.log"; do
+    for existing_log in "logs/backend.log" "logs/database_mcp_clients.log" "logs/athena_mcp.log" "logs/s3vectors_mcp.log"; do
         if [ -f "$existing_log" ]; then
             log_files+=("$existing_log")
         fi
@@ -322,7 +348,7 @@ if [ "$SHOW_LOGS" = true ]; then
 else
     echo -e "\n${YELLOW}Press Ctrl+C to stop all services${NC}"
     echo -e "${BLUE}To view logs in real-time, restart with: ./start_system.sh --show-logs${NC}"
-    echo -e "${BLUE}Available log files: logs/backend.log, logs/database_mcp_clients.log, logs/athena_mcp.log${NC}"
+    echo -e "${BLUE}Available log files: logs/backend.log, logs/database_mcp_clients.log, logs/athena_mcp.log, logs/s3vectors_mcp.log${NC}"
 fi
 
 # Keep the script running
