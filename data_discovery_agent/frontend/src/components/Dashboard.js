@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { tabSessionManager } from '../utils/TabSessionManager';
 import { toast } from 'react-hot-toast';
 import { Send, Bot, X, MessageSquare, Loader2 } from 'lucide-react';
 import { useChat } from '../contexts/ChatContext';

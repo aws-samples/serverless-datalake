@@ -10,8 +10,6 @@ import uuid
 from typing import Optional, Dict, Any
 from strands import Agent
 from strands.models import BedrockModel
-from strands.session.file_session_manager import FileSessionManager
-from strands.agent.conversation_manager import NullConversationManager
 import time
 
 logger = logging.getLogger(__name__)
@@ -28,22 +26,17 @@ class ResponseSummarizer:
     - Data analysis and insights
     """
     
-    def __init__(self, model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0", 
-                 session_id: Optional[str] = None):
+    def __init__(self, model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0"):
         """
         Initialize the ResponseSummarizer.
         
         Args:
             model_id: The model ID to use for the summarization agent
-            session_id: Optional session ID, will generate one if not provided
         """
         self.model_id = model_id
-        self.session_id = session_id or f"summarizer_{int(time.time())}"
         self._agent = None
-        self._session_manager = None
-        self._conversation_manager = None
         
-        logger.info(f"ResponseSummarizer initialized with model: {model_id}, session: {self.session_id}")
+        logger.info(f"ResponseSummarizer initialized with model: {model_id}")
     
     @property
     def agent(self) -> Agent:
@@ -60,22 +53,13 @@ class ResponseSummarizer:
     def _create_agent(self):
         """Create the summarization agent with proper configuration."""
         try:
-            # Create session manager
-            self._session_manager = FileSessionManager(session_id=self.session_id)
-            
-            # Create conversation manager (using null manager for summarization tasks)
-            self._conversation_manager = NullConversationManager()
-            
             # Create model
             model = BedrockModel(model_id=self.model_id)
             
             # Create agent
             self._agent = Agent(
-                session_manager=self._session_manager,
                 model=model,
-                conversation_manager=self._conversation_manager,
-                agent_id=str(uuid.uuid4()),
-                name="ResponseSummarizer"
+                agent_id=str(uuid.uuid4())
             )
             
             logger.info("Summarization agent created successfully")
@@ -276,28 +260,19 @@ class ResponseSummarizer:
             logger.error(f"Error creating executive summary: {e}")
             return f"Error creating executive summary: {str(e)}"
     
-    def cleanup(self):
-        """Clean up resources and reset the agent."""
-        self._agent = None
-        self._session_manager = None
-        self._conversation_manager = None
-        logger.info(f"ResponseSummarizer cleaned up for session: {self.session_id}")
-
 
 # Convenience functions for quick access
-def create_summarizer(model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0", 
-                     session_id: Optional[str] = None) -> ResponseSummarizer:
+def create_summarizer(model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0") -> ResponseSummarizer:
     """
     Create a new ResponseSummarizer instance.
     
     Args:
         model_id: The model ID to use
-        session_id: Optional session ID
         
     Returns:
         ResponseSummarizer: Configured summarizer instance
     """
-    return ResponseSummarizer(model_id=model_id, session_id=session_id)
+    return ResponseSummarizer(model_id=model_id)
 
 
 def quick_summarize(content: str, context: str = "", 
@@ -317,4 +292,4 @@ def quick_summarize(content: str, context: str = "",
     try:
         return summarizer.summarize_responses(content, context)
     finally:
-        summarizer.cleanup()
+        logger.info(f"Summarized with model_id {model_id}")

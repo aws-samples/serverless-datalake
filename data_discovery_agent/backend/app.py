@@ -441,14 +441,8 @@ def get_mcp_status():
 def handle_connect():
     """Handle WebSocket connection."""
     try:
-        # Generate a unique session ID that's different from the Socket.IO SID
-        # This allows multiple tabs in the same browser to have different sessions
-        session_id = request.sid
-        client_session_id = request.args.get('tabId') if request.args.get('tabId') else f"tab_{int(time.time())}_{session_id[-6:]}"
-        logger.info(f"Client connecting: Socket ID {session_id}, Client Session ID: {client_session_id}")
-        
-        # Store the mapping between socket ID and client session ID
-        socketio.server.save_session(request.sid, {'client_session_id': client_session_id})
+        client_id = request.sid
+        logger.info(f"Client connecting: Socket ID {client_id}")
         
         # Check if chatbot exists
         if not chatbot:
@@ -466,57 +460,56 @@ def handle_connect():
         # Initialize the conversation manager in a separate thread to avoid blocking
         def initialize_conversation():
             try:
-                logger.info(f"Initializing conversation for session {session_id}")
+                logger.info(f"Initializing conversation for session {client_id}")
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
                 # Create agents for this session
                 try:
-                    chatbot.create_all_agents(user_id=client_session_id, session_id=client_session_id)
+                    chatbot.create_all_agents(user_id=client_id, session_id=client_id)
                     
                     # Verify that the orchestrator agent was created
                     if not chatbot.orchestrate_agent:
                         raise Exception("Orchestrator agent was not created properly")
                         
-                    logger.info(f"Agents created successfully for session {session_id}")
+                    logger.info(f"Agents created successfully for session {client_id}")
                     
                     # Emit connection success with session info
                     socketio.emit(
                         "connected",
                         {
                             "status": "connected",
-                            "sid": session_id,
-                            "tabId": client_session_id,
+                            "sid": client_id,
                             "timestamp": datetime.now().isoformat()
                         },
-                        room=session_id,
+                        room=client_id,
                     )
                 except Exception as e:
-                    logger.error(f"Failed to create agents for session {session_id}: {e}")
+                    logger.error(f"Failed to create agents for session {client_id}: {e}")
                     socketio.emit(
                         "connected",
                         {
                             "status": "error",
-                            "sid": session_id,
+                            "sid": client_id,
                             "error": f"Failed to initialize chat system: {str(e)}",
                             "timestamp": datetime.now().isoformat(),
                         },
-                        room=session_id,
+                        room=client_id,
                     )
 
             except Exception as e:
                 logger.error(
-                    f"Error initializing conversation for session {session_id}: {e}"
+                    f"Error initializing conversation for session {client_id}: {e}"
                 )
                 socketio.emit(
                     "connected",
                     {
                         "status": "error",
-                        "sid": session_id,
+                        "sid": client_id,
                         "error": str(e),
                         "timestamp": datetime.now().isoformat(),
                     },
-                    room=session_id,
+                    room=client_id,
                 )
             finally:
                 loop.close()
@@ -525,7 +518,7 @@ def handle_connect():
         init_thread = threading.Thread(target=initialize_conversation, daemon=True)
         init_thread.start()
 
-        logger.info(f"Client connection handler started for: {session_id}")
+        logger.info(f"Client connection handler started for: {client_id}")
 
     except Exception as e:
         logger.error(f"Error in WebSocket connect handler: {e}")
@@ -542,19 +535,16 @@ def handle_connect():
 def handle_disconnect():
     """Handle WebSocket disconnection and preserve conversation state."""
     try:
-        session_id = request.sid
-        session_data = socketio.server.get_session(session_id)
-        client_session_id = session_data.get('client_session_id', session_id) if session_data else session_id
+        client_id = request.sid
         
         emit("disconnected",
             {
                 "status": "disconnected",
-                "sid": session_id,
-                "tabId": client_session_id,
+                "sid": client_id,
                 "timestamp": datetime.now().isoformat(),
             }
             )
-        chatbot.destroy_all_agents(session_id=client_session_id)
+        chatbot.destroy_all_agents(session_id=client_id)
     except Exception as e:
         logger.error(f"Error in WebSocket disconnect handler: {e}")
 
@@ -581,15 +571,11 @@ def handle_chat_message(data):
             return
             
         client_sid = request.sid
-        
-        # Get the client's tab-specific session ID
-        session_data = socketio.server.get_session(client_sid)
-        client_session_id = session_data.get('client_session_id', client_sid) if session_data else client_sid
         # Check if orchestrator agent exists and create if needed
         if not chatbot.orchestrate_agent:
             logger.warning("Orchestrator agent not found, creating agents")
             try:
-                chatbot.create_all_agents(user_id=client_session_id, session_id=client_session_id)
+                chatbot.create_all_agents(user_id=client_sid, session_id=client_sid)
                 if not chatbot.orchestrate_agent:
                     raise Exception("Failed to create orchestrator agent")
             except Exception as e:
@@ -639,7 +625,7 @@ def handle_chat_message(data):
 
                 # Process message with conversation manager
                 loop.run_until_complete(
-                    chatbot.process_message_stream(message, stream_callback, user_id=client_session_id, session_id=client_session_id)
+                    chatbot.process_message_stream(message, stream_callback, user_id=client_sid, session_id=client_sid)
                 )
             except Exception as e:
                 logger.error(f"Error processing message: {e}")

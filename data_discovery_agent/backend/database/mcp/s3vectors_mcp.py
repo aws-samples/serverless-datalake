@@ -49,28 +49,28 @@ MAX_INPUT_TOKENS = 8192
 EMBEDDING_DIMENSIONS = 1024
 
 
-@mcp.tool()
-async def test_s3vectors_connection() -> str:
-    """
-    Test the AWS S3 Vectors connection.
+# @mcp.tool()
+# async def test_s3vectors_connection() -> str:
+#     """
+#     Test the AWS S3 Vectors connection.
 
-    Returns:
-        str: Connection status message
-    """
-    print("🔌 TEST_S3VECTORS_CONNECTION called")
-    logger.info("TEST_S3VECTORS_CONNECTION called")
-    try:
-        if not s3vectors_client:
-            print("❌ S3 Vectors client not initialized")
-            return "❌ S3 Vectors client not initialized"
+#     Returns:
+#         str: Connection status message
+#     """
+#     print("🔌 TEST_S3VECTORS_CONNECTION called")
+#     logger.info("TEST_S3VECTORS_CONNECTION called")
+#     try:
+#         if not s3vectors_client:
+#             print("❌ S3 Vectors client not initialized")
+#             return "❌ S3 Vectors client not initialized"
         
-        # Test connection by listing vector buckets
-        response = s3vectors_client.list_vector_buckets(maxResults=1)
-        print("✅ S3 Vectors connection successful")
-        return "✅ S3 Vectors connection successful"
-    except Exception as e:
-        print(f"❌ S3 Vectors connection error: {str(e)}")
-        return f"❌ S3 Vectors connection error: {str(e)}"
+#         # Test connection by listing vector buckets
+#         response = s3vectors_client.list_vector_buckets(maxResults=1)
+#         print("✅ S3 Vectors connection successful")
+#         return "✅ S3 Vectors connection successful"
+#     except Exception as e:
+#         print(f"❌ S3 Vectors connection error: {str(e)}")
+#         return f"❌ S3 Vectors connection error: {str(e)}"
 
 
 def generate_query_embedding(query_text: str, embed_model_id: str = DEFAULT_EMBED_MODEL_ID) -> List[float]:
@@ -124,45 +124,45 @@ def generate_query_embedding(query_text: str, embed_model_id: str = DEFAULT_EMBE
         raise
 
 
-@mcp.tool()
-async def get_s3vectors_config() -> str:
-    """
-    Get the current S3 Vectors MCP server configuration.
+# @mcp.tool()
+# async def get_s3vectors_config() -> str:
+#     """
+#     Get the current S3 Vectors MCP server configuration.
 
-    Returns:
-        str: JSON formatted configuration information
-    """
-    print("⚙️ GET_S3VECTORS_CONFIG called")
-    logger.info("GET_S3VECTORS_CONFIG called")
-    try:
-        config = {
-            "s3vectors_client_initialized": s3vectors_client is not None,
-            "bedrock_runtime_initialized": bedrock_runtime is not None,
-            "default_embed_model": DEFAULT_EMBED_MODEL_ID,
-            "embedding_dimensions": EMBEDDING_DIMENSIONS,
-            "max_input_tokens": MAX_INPUT_TOKENS,
-            "environment_variables": {
-                "AWS_REGION": os.getenv('AWS_REGION', 'Not set'),
-                "AWS_DEFAULT_REGION": os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
-            },
-            "service_info": {
-                "description": "AWS S3 Vectors - Read-only access for querying vector embeddings",
-                "supported_operations": [
-                    "List vector buckets and indexes",
-                    "Query vectors with automatic text-to-embedding conversion", 
-                    "Similarity search with metadata filtering",
-                    "Retrieve specific vectors by keys"
-                ],
-                "mode": "read-only"
-            }
-        }
+#     Returns:
+#         str: JSON formatted configuration information
+#     """
+#     print("⚙️ GET_S3VECTORS_CONFIG called")
+#     logger.info("GET_S3VECTORS_CONFIG called")
+#     try:
+#         config = {
+#             "s3vectors_client_initialized": s3vectors_client is not None,
+#             "bedrock_runtime_initialized": bedrock_runtime is not None,
+#             "default_embed_model": DEFAULT_EMBED_MODEL_ID,
+#             "embedding_dimensions": EMBEDDING_DIMENSIONS,
+#             "max_input_tokens": MAX_INPUT_TOKENS,
+#             "environment_variables": {
+#                 "AWS_REGION": os.getenv('AWS_REGION', 'Not set'),
+#                 "AWS_DEFAULT_REGION": os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
+#             },
+#             "service_info": {
+#                 "description": "AWS S3 Vectors - Read-only access for querying vector embeddings",
+#                 "supported_operations": [
+#                     "List vector buckets and indexes",
+#                     "Query vectors with automatic text-to-embedding conversion", 
+#                     "Similarity search with metadata filtering",
+#                     "Retrieve specific vectors by keys"
+#                 ],
+#                 "mode": "read-only"
+#             }
+#         }
         
-        print(f"✅ Configuration retrieved successfully")
-        return json.dumps(config, indent=2)
-    except Exception as e:
-        logger.error(f"Error getting configuration: {e}")
-        print(f"❌ Error getting configuration: {str(e)}")
-        return f"❌ Error getting configuration: {str(e)}"
+#         print(f"✅ Configuration retrieved successfully")
+#         return json.dumps(config, indent=2)
+#     except Exception as e:
+#         logger.error(f"Error getting configuration: {e}")
+#         print(f"❌ Error getting configuration: {str(e)}")
+#         return f"❌ Error getting configuration: {str(e)}"
 
 
 @mcp.tool()
@@ -234,7 +234,7 @@ async def get_vector_bucket(bucket_name: str) -> str:
             "tags": response.get('tags', [])
         }
         
-        print(f"✅ Retrieved details for vector bucket '{bucket_name}'")
+        print(f"✅ Retrieved details for vector bucket '{bucket_name}' {result}")
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
         logger.error(f"Error getting vector bucket: {e}")
@@ -418,12 +418,9 @@ async def query_vectors(
     bucket_name: str,
     index_name: str,
     query_text: str,
-    doc_id: Optional[str] = None,
     top_k: int = 5,
-    return_data: bool = False,
     return_metadata: bool = True,
-    return_distance: bool = True,
-    embed_model_id: str = DEFAULT_EMBED_MODEL_ID
+    return_distance: bool = True
 ) -> str:
     """
     Query vectors using natural language text (automatically converts a query string to embeddings).
@@ -435,9 +432,7 @@ async def query_vectors(
         bucket_name (str): Name of the vector bucket
         index_name (str): Name of the vector index
         query_text (str): Natural language query text to search for
-        doc_id (str, optional): Document ID to filter results by (metadata filter)
         top_k (int): Number of nearest neighbors to return (default: 5, max: 30)
-        return_data (bool): Whether to return vector data (default: False)
         return_metadata (bool): Whether to return metadata (default: True)
         return_distance (bool): Whether to return distances (default: True)
         embed_model_id (str): Bedrock embedding model ID (default: Titan V2)
@@ -448,23 +443,13 @@ async def query_vectors(
     print(f"🔍 QUERY_VECTORS_WITH_TEXT called for query: '{query_text[:50]}...'")
     logger.info(f"QUERY_VECTORS_WITH_TEXT called for index: {index_name}")
     try:
-        if not s3vectors_client:
-            return "❌ S3 Vectors client not initialized"
-        
-        if not bedrock_runtime:
-            return "❌ Bedrock Runtime client not initialized"
-        
-        # Validate top_k
-        if not (1 <= top_k <= 30):
-            return "❌ top_k must be between 1 and 30 for S3 Vectors"
-        
         if not query_text or not query_text.strip():
             return "❌ query_text cannot be empty"
         
         # Generate embedding from query text
         print(f"🧠 Generating embedding for query text...")
         try:
-            query_embedding = generate_query_embedding(query_text, embed_model_id)
+            query_embedding = generate_query_embedding(query_text, DEFAULT_EMBED_MODEL_ID)
         except Exception as e:
             return f"❌ Error generating embedding: {str(e)}"
         
@@ -472,271 +457,250 @@ async def query_vectors(
         request_params = {
             'vectorBucketName': bucket_name,
             'indexName': index_name,
-            'queryVector': query_embedding,
-            'topK': top_k,
-            'returnData': return_data,
+            'queryVector': {'float32': query_embedding},
+            'topK': min(top_k, 30),
             'returnMetadata': return_metadata,
             'returnDistance': return_distance
         }
-        
-        # Add metadata filter if doc_id is provided
-        if doc_id:
-            request_params['filter'] = {'docId': doc_id}
-            print(f"🔍 Filtering results by docId: {doc_id}")
         
         print(f"🔍 Querying S3 Vectors with {len(query_embedding)}-dimensional embedding...")
         response = s3vectors_client.query_vectors(**request_params)
         
         # Process results to add similarity scores
         vectors = response.get('vectors', [])
+        
+        if not vectors:
+            self.logger.warning(f"No vectors found for docId={doc_id}")
+            return []
+        
         processed_results = []
         
         for vector in vectors:
+            # Extract metadata
+            metadata = vector.get('metadata', {})
+            
             # Calculate similarity from distance
+            # S3 Vectors returns distance, convert to similarity
             distance = vector.get('distance', 0.0)
             distance_metric = response.get('distanceMetric', 'cosine')
             
-            if distance_metric.lower() == 'cosine':
+            if distance_metric == 'cosine':
                 # Cosine distance: 0 = identical, 2 = opposite
                 # Convert to similarity: 1 = identical, 0 = opposite
-                similarity = max(0.0, min(1.0, 1.0 - (distance / 2.0)))
-            elif distance_metric.lower() == 'euclidean':
+                similarity = 1.0 - (distance / 2.0)
+            elif distance_metric == 'euclidean':
                 # Euclidean distance: smaller is better
                 # Convert to similarity (approximate)
-                similarity = max(0.0, min(1.0, 1.0 / (1.0 + distance)))
+                similarity = 1.0 / (1.0 + distance)
             else:
-                similarity = max(0.0, min(1.0, 1.0 - distance))
+                similarity = 1.0 - distance
             
-            result_item = {
+            processed_results.append({
                 'key': vector.get('key', ''),
-                'similarity': round(similarity, 4),
-                'distance': round(distance, 4),
-                'metadata': vector.get('metadata', {})
-            }
+                'similarity': max(0.0, min(1.0, similarity)),  # Clamp to [0, 1]
+                'distance': distance,
+                'textChunk': metadata.get('textChunk', ''),
+                'pageRange': metadata.get('pageRange', ''),
+                'docId': metadata.get('docId', ''),
+                'uploadTimestamp': metadata.get('uploadTimestamp', 0)
+            })
             
-            # Add vector data if requested
-            if return_data and 'data' in vector:
-                result_item['data'] = vector['data']
-            
-            processed_results.append(result_item)
-        
-        result = {
-            "bucket_name": bucket_name,
-            "index_name": index_name,
-            "query_text": query_text,
-            "embedding_model": embed_model_id,
-            "embedding_dimensions": len(query_embedding),
-            "top_k": top_k,
-            "distance_metric": response.get('distanceMetric'),
-            "doc_id_filter": doc_id,
-            "results": processed_results,
-            "result_count": len(processed_results)
-        }
-        
-        print(f"✅ Text query returned {len(processed_results)} results")
-        if processed_results:
-            similarities = [r['similarity'] for r in processed_results]
-            print(f"📊 Similarity scores: {similarities}")
-        
-        return json.dumps(result, indent=2, default=str)
+        return json.dumps(processed_results, indent=2, default=str)
     except Exception as e:
         logger.error(f"Error querying vectors with text: {e}")
         print(f"❌ Error querying vectors with text: {str(e)}")
         return f"❌ Error querying vectors with text: {str(e)}"
 
 
-@mcp.tool()
-async def list_vectors(
-    bucket_name: str,
-    index_name: str,
-    max_results: int = 100,
-    return_data: bool = False,
-    return_metadata: bool = True,
-    next_token: Optional[str] = None
-) -> str:
-    """
-    List vectors in a vector index.
+# @mcp.tool()
+# async def list_vectors(
+#     bucket_name: str,
+#     index_name: str,
+#     max_results: int = 100,
+#     return_data: bool = False,
+#     return_metadata: bool = True,
+#     next_token: Optional[str] = None
+# ) -> str:
+#     """
+#     List vectors in a vector index.
 
-    Args:
-        bucket_name (str): Name of the vector bucket
-        index_name (str): Name of the vector index
-        max_results (int): Maximum number of vectors to return (default: 100, max: 1000)
-        return_data (bool): Whether to return vector data (default: False)
-        return_metadata (bool): Whether to return metadata (default: True)
-        next_token (str, optional): Token for pagination
+#     Args:
+#         bucket_name (str): Name of the vector bucket
+#         index_name (str): Name of the vector index
+#         max_results (int): Maximum number of vectors to return (default: 100, max: 1000)
+#         return_data (bool): Whether to return vector data (default: False)
+#         return_metadata (bool): Whether to return metadata (default: True)
+#         next_token (str, optional): Token for pagination
 
-    Returns:
-        str: JSON formatted list of vectors
-    """
-    print(f"📋 LIST_VECTORS called for index: {index_name} with max_results: {max_results}")
-    logger.info(f"LIST_VECTORS called for index: {index_name} with max_results: {max_results}")
-    try:
-        if not s3vectors_client:
-            return "❌ S3 Vectors client not initialized"
+#     Returns:
+#         str: JSON formatted list of vectors
+#     """
+#     print(f"📋 LIST_VECTORS called for index: {index_name} with max_results: {max_results}")
+#     logger.info(f"LIST_VECTORS called for index: {index_name} with max_results: {max_results}")
+#     try:
+#         if not s3vectors_client:
+#             return "❌ S3 Vectors client not initialized"
         
-        # Validate max_results
-        max_results = min(max_results, 1000)  # Cap at API limit
+#         # Validate max_results
+#         max_results = min(max_results, 1000)  # Cap at API limit
         
-        # Prepare request parameters
-        request_params = {
-            'vectorBucketName': bucket_name,
-            'indexName': index_name,
-            'maxResults': max_results,
-            'returnData': return_data,
-            'returnMetadata': return_metadata
-        }
+#         # Prepare request parameters
+#         request_params = {
+#             'vectorBucketName': bucket_name,
+#             'indexName': index_name,
+#             'maxResults': max_results,
+#             'returnData': return_data,
+#             'returnMetadata': return_metadata
+#         }
         
-        if next_token:
-            request_params['nextToken'] = next_token
+#         if next_token:
+#             request_params['nextToken'] = next_token
         
-        response = s3vectors_client.list_vectors(**request_params)
-        vectors = response.get('vectors', [])
+#         response = s3vectors_client.list_vectors(**request_params)
+#         vectors = response.get('vectors', [])
         
-        result = {
-            "bucket_name": bucket_name,
-            "index_name": index_name,
-            "vectors": vectors,
-            "count": len(vectors),
-            "next_token": response.get('nextToken')
-        }
+#         result = {
+#             "bucket_name": bucket_name,
+#             "index_name": index_name,
+#             "vectors": vectors,
+#             "count": len(vectors),
+#             "next_token": response.get('nextToken')
+#         }
         
-        print(f"✅ Listed {len(vectors)} vectors from index '{index_name}'")
-        return json.dumps(result, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"Error listing vectors: {e}")
-        print(f"❌ Error listing vectors: {str(e)}")
-        return f"❌ Error listing vectors: {str(e)}"
+#         print(f"✅ Listed {len(vectors)} vectors from index '{index_name}'")
+#         return json.dumps(result, indent=2, default=str)
+#     except Exception as e:
+#         logger.error(f"Error listing vectors: {e}")
+#         print(f"❌ Error listing vectors: {str(e)}")
+#         return f"❌ Error listing vectors: {str(e)}"
 
 
-@mcp.tool()
-async def get_vectors(
-    bucket_name: str,
-    index_name: str,
-    vector_keys: List[str],
-    return_data: bool = True,
-    return_metadata: bool = True
-) -> str:
-    """
-    Get specific vectors by their keys.
+# @mcp.tool()
+# async def get_vectors(
+#     bucket_name: str,
+#     index_name: str,
+#     vector_keys: List[str],
+#     return_metadata: bool = True
+# ) -> str:
+#     """
+#     Get specific vectors by their keys.
 
-    Args:
-        bucket_name (str): Name of the vector bucket
-        index_name (str): Name of the vector index
-        vector_keys (list): List of vector keys to retrieve (max 100)
-        return_data (bool): Whether to return vector data (default: True)
-        return_metadata (bool): Whether to return metadata (default: True)
+#     Args:
+#         bucket_name (str): Name of the vector bucket
+#         index_name (str): Name of the vector index
+#         vector_keys (list): List of vector keys to retrieve (max 100)
+#         return_metadata (bool): Whether to return metadata (default: True)
 
-    Returns:
-        str: JSON formatted vector data
-    """
-    print(f"📊 GET_VECTORS called for {len(vector_keys)} vectors in index: {index_name}")
-    logger.info(f"GET_VECTORS called for {len(vector_keys)} vectors in index: {index_name}")
-    try:
-        if not s3vectors_client:
-            return "❌ S3 Vectors client not initialized"
+#     Returns:
+#         str: JSON formatted vector data
+#     """
+#     print(f"📊 GET_VECTORS called for {len(vector_keys)} vectors in index: {index_name}")
+#     logger.info(f"GET_VECTORS called for {len(vector_keys)} vectors in index: {index_name}")
+#     try:
+#         if not s3vectors_client:
+#             return "❌ S3 Vectors client not initialized"
         
-        # Validate vector keys count
-        if len(vector_keys) > 100:
-            return "❌ Maximum 100 vector keys per request"
+#         # Validate vector keys count
+#         if len(vector_keys) > 100:
+#             return "❌ Maximum 100 vector keys per request"
         
-        if not vector_keys:
-            return "❌ At least one vector key is required"
+#         if not vector_keys:
+#             return "❌ At least one vector key is required"
         
-        response = s3vectors_client.get_vectors(
-            vectorBucketName=bucket_name,
-            indexName=index_name,
-            keys=vector_keys,
-            returnData=return_data,
-            returnMetadata=return_metadata
-        )
+#         response = s3vectors_client.get_vectors(
+#             vectorBucketName=bucket_name,
+#             indexName=index_name,
+#             keys=vector_keys,
+#             returnMetadata=return_metadata
+#         )
         
-        vectors = response.get('vectors', [])
+#         vectors = response.get('vectors', [])
         
-        result = {
-            "bucket_name": bucket_name,
-            "index_name": index_name,
-            "requested_keys": vector_keys,
-            "vectors": vectors,
-            "found_count": len(vectors),
-            "requested_count": len(vector_keys)
-        }
+#         result = {
+#             "bucket_name": bucket_name,
+#             "index_name": index_name,
+#             "requested_keys": vector_keys,
+#             "vectors": vectors,
+#             "found_count": len(vectors),
+#             "requested_count": len(vector_keys)
+#         }
         
-        print(f"✅ Retrieved {len(vectors)} out of {len(vector_keys)} requested vectors")
-        return json.dumps(result, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"Error getting vectors: {e}")
-        print(f"❌ Error getting vectors: {str(e)}")
-        return f"❌ Error getting vectors: {str(e)}"
+#         print(f"✅ Retrieved {len(vectors)} out of {len(vector_keys)} requested vectors")
+#         return json.dumps(result, indent=2, default=str)
+#     except Exception as e:
+#         logger.error(f"Error getting vectors: {e}")
+#         print(f"❌ Error getting vectors: {str(e)}")
+#         return f"❌ Error getting vectors: {str(e)}"
 
-@mcp.tool()
-async def get_s3vectors_summary() -> str:
-    """
-    Get a comprehensive summary of all vector buckets and indexes in the account.
+# @mcp.tool()
+# async def get_s3vectors_summary() -> str:
+#     """
+#     Get a comprehensive summary of all vector buckets and indexes in the account.
 
-    Returns:
-        str: JSON formatted summary of the entire S3 Vectors setup
-    """
-    print("📋 GET_S3VECTORS_SUMMARY called")
-    logger.info("GET_S3VECTORS_SUMMARY called")
-    try:
-        if not s3vectors_client:
-            return "❌ S3 Vectors client not initialized"
+#     Returns:
+#         str: JSON formatted summary of the entire S3 Vectors setup
+#     """
+#     print("📋 GET_S3VECTORS_SUMMARY called")
+#     logger.info("GET_S3VECTORS_SUMMARY called")
+#     try:
+#         if not s3vectors_client:
+#             return "❌ S3 Vectors client not initialized"
         
-        # Get all vector buckets
-        buckets_response = s3vectors_client.list_vector_buckets(maxResults=500)
-        buckets = buckets_response.get('vectorBuckets', [])
+#         # Get all vector buckets
+#         buckets_response = s3vectors_client.list_vector_buckets(maxResults=500)
+#         buckets = buckets_response.get('vectorBuckets', [])
         
-        summary = {
-            "bucket_count": len(buckets),
-            "buckets": [],
-            "total_indexes": 0
-        }
+#         summary = {
+#             "bucket_count": len(buckets),
+#             "buckets": [],
+#             "total_indexes": 0
+#         }
         
-        for bucket in buckets:
-            bucket_name = bucket.get('vectorBucketName')
-            bucket_info = {
-                "name": bucket_name,
-                "arn": bucket.get('vectorBucketArn'),
-                "creation_date": bucket.get('creationTime'),
-                "indexes": [],
-                "index_count": 0
-            }
+#         for bucket in buckets:
+#             bucket_name = bucket.get('vectorBucketName')
+#             bucket_info = {
+#                 "name": bucket_name,
+#                 "arn": bucket.get('vectorBucketArn'),
+#                 "creation_date": bucket.get('creationTime'),
+#                 "indexes": [],
+#                 "index_count": 0
+#             }
             
-            try:
-                # Get indexes for this bucket
-                indexes_response = s3vectors_client.list_indexes(
-                    vectorBucketName=bucket_name,
-                    maxResults=500
-                )
-                indexes = indexes_response.get('indexes', [])
+#             try:
+#                 # Get indexes for this bucket
+#                 indexes_response = s3vectors_client.list_indexes(
+#                     vectorBucketName=bucket_name,
+#                     maxResults=500
+#                 )
+#                 indexes = indexes_response.get('indexes', [])
                 
-                for index in indexes:
-                    index_info = {
-                        "name": index.get('indexName'),
-                        "arn": index.get('indexArn'),
-                        "dimension": index.get('dimension'),
-                        "distance_metric": index.get('distanceMetric'),
-                        "data_type": index.get('dataType'),
-                        "status": index.get('status'),
-                        "creation_date": index.get('creationTime')
-                    }
-                    bucket_info["indexes"].append(index_info)
+#                 for index in indexes:
+#                     index_info = {
+#                         "name": index.get('indexName'),
+#                         "arn": index.get('indexArn'),
+#                         "dimension": index.get('dimension'),
+#                         "distance_metric": index.get('distanceMetric'),
+#                         "data_type": index.get('dataType'),
+#                         "status": index.get('status'),
+#                         "creation_date": index.get('creationTime')
+#                     }
+#                     bucket_info["indexes"].append(index_info)
                 
-                bucket_info["index_count"] = len(indexes)
-                summary["total_indexes"] += len(indexes)
+#                 bucket_info["index_count"] = len(indexes)
+#                 summary["total_indexes"] += len(indexes)
                 
-            except Exception as e:
-                logger.warning(f"Error getting indexes for bucket {bucket_name}: {e}")
-                bucket_info["error"] = f"Could not retrieve indexes: {str(e)}"
+#             except Exception as e:
+#                 logger.warning(f"Error getting indexes for bucket {bucket_name}: {e}")
+#                 bucket_info["error"] = f"Could not retrieve indexes: {str(e)}"
             
-            summary["buckets"].append(bucket_info)
+#             summary["buckets"].append(bucket_info)
         
-        print(f"✅ Generated summary with {len(buckets)} buckets and {summary['total_indexes']} total indexes")
-        return json.dumps(summary, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"Error getting S3 Vectors summary: {e}")
-        print(f"❌ Error getting S3 Vectors summary: {str(e)}")
-        return f"❌ Error getting S3 Vectors summary: {str(e)}"
+#         print(f"✅ Generated summary with {len(buckets)} buckets and {summary['total_indexes']} total indexes")
+#         return json.dumps(summary, indent=2, default=str)
+#     except Exception as e:
+#         logger.error(f"Error getting S3 Vectors summary: {e}")
+#         print(f"❌ Error getting S3 Vectors summary: {str(e)}")
+#         return f"❌ Error getting S3 Vectors summary: {str(e)}"
 
 
 def main():

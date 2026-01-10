@@ -3,7 +3,6 @@ import { useChat } from '../contexts/ChatContext';
 import { Send, Trash2, Loader2 } from 'lucide-react';
 import ChatMessage from './ChatMessage';
 import ConnectionStatus from './ConnectionStatus';
-import TabSessionIndicator from './TabSessionIndicator';
 
 function ChatInterface() {
   const { 
@@ -59,24 +58,11 @@ function ChatInterface() {
   const handleClearChat = () => {
     // Clear messages in the state
     clearMessages();
-    
-    // Access the socket reference directly from the destructured props
-    const { current: socket } = socketRef;
-    
-    // Disconnect the websocket if it exists
-    if (socket) {
-      socket.disconnect();
-      
-      // Reconnect after a short delay
-      setTimeout(() => {
-        socket.connect();
-        checkConnection();
-      }, 500);
-    }
   };
 
   const exampleQueries = [
     "Investigate all tables in the Athena",
+    "Whats the insurance policy certificate",
     "Give me the schema of the iceberg_employees table in apache_iceberg database on Athena",
     "Get me a count of employees in the iceberg_employees table",
     "List my vector buckets and indexes",
@@ -112,7 +98,6 @@ function ChatInterface() {
             </div>
           </div>
           <div className="flex items-center space-x-4">
-            <TabSessionIndicator />
             <ConnectionStatus isConnected={isConnected} />
             <button
               onClick={handleClearChat}

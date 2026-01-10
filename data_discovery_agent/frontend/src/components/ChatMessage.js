@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Loader2 } from 'lucide-react';
+import { User, Loader2, ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -14,7 +14,62 @@ import HTMLContentRenderer from './HTMLContentRenderer';
 import { useChat } from '../contexts/ChatContext';
 import axios from 'axios';
 
-// Dashboard renderer component
+// Citations component for displaying raw data sources
+function Citations({ citations, query, timestamp }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  if (!citations) return null;
+
+  return (
+    <div className="mt-4 border border-gray-200 rounded-lg bg-gray-50">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center justify-between p-3 text-left hover:bg-gray-100 transition-colors"
+      >
+        <div className="flex items-center space-x-2">
+          <FileText className="h-4 w-4 text-gray-500" />
+          <span className="text-sm font-medium text-gray-700">
+            View Data Sources & Citations
+          </span>
+          <span className="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded-full">
+            Raw Data
+          </span>
+        </div>
+        {isExpanded ? (
+          <ChevronDown className="h-4 w-4 text-gray-500" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-gray-500" />
+        )}
+      </button>
+      
+      {isExpanded && (
+        <div className="border-t border-gray-200 p-4 bg-white">
+          <div className="mb-3">
+            <h4 className="text-sm font-medium text-gray-700 mb-1">Data Sources</h4>
+            <p className="text-xs text-gray-500">
+              Raw data retrieved from database queries for: "{query}"
+            </p>
+            {timestamp && (
+              <p className="text-xs text-gray-400 mt-1">
+                Retrieved at: {new Date(timestamp).toLocaleString()}
+              </p>
+            )}
+          </div>
+          
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 max-h-96 overflow-y-auto">
+            <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono leading-relaxed">
+              {typeof citations === 'string' ? citations : JSON.stringify(citations, null, 2)}
+            </pre>
+          </div>
+          
+          <div className="mt-3 text-xs text-gray-500">
+            <p>💡 This section shows the raw data that was used to generate the analysis above.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 function DashboardRenderer({ filename, metadata }) {
   const [htmlContent, setHtmlContent] = useState('');
   const [loading, setLoading] = useState(true);
@@ -546,6 +601,15 @@ function ChatMessage({ message }) {
             htmlContent={message.htmlContent} 
             metadata={message.metadata} 
             title={message.htmlContentTitle || "Analysis Report"}
+          />
+        )}
+
+        {/* Citations for with_citations message type */}
+        {message.citations && (
+          <Citations 
+            citations={message.citations} 
+            query={message.query} 
+            timestamp={message.citationsTimestamp || message.timestamp}
           />
         )}
       </div>

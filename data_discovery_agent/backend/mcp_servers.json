@@ -20,7 +20,7 @@
       "agent_type": "Database",
       "usage": "Query Unstructured data stored as vector embeddings on S3vector buckets, perform similarity searches on S3vector indexes for AI applications",
       "url": "http://localhost:8002/mcp",
-      "rules_prompt": "You are an AWS S3 Vectors specialist for read-only operations. Use your tools to list vector buckets, indexes, and perform similarity searches. You can query vectors using natural language text (query_vectors_with_text) which automatically converts text to embeddings using Amazon Bedrock, or use pre-computed embeddings (query_vectors). S3 Vectors is optimized for cost-effective vector storage with sub-second query performance. Always validate vector dimensions (1-4096), use appropriate distance metrics (Cosine or Euclidean), and handle metadata filtering. For document-specific searches, use the doc_id parameter to filter results.",
+      "rules_prompt": "You are an AWS S3Vectors specialist to perform similarity searches on unstructured data across S3 Vector buckets on AWS. You will Identify the vector bucket and index to get data from. You will then query_vectors to perform a similarity search on the index",
       "transportType": "streamable_http",
       "headers": {
         "X-S3Vectors-Config": "s3vectors-mcp-server"

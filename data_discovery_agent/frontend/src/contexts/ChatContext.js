@@ -2,7 +2,6 @@ import React, { createContext, useContext, useReducer, useEffect, useRef } from 
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import io from 'socket.io-client';
-import { tabSessionManager } from '../utils/TabSessionManager';
 
 const ChatContext = createContext();
 
@@ -63,8 +62,8 @@ export function ChatProvider({ children }) {
 
   // Initialize WebSocket connection
   useEffect(() => {
-    // Connect to WebSocket server using the tab session manager
-    socketRef.current = tabSessionManager.connectSocket('http://localhost:5001', {
+    // Connect to WebSocket server directly without tab session management
+    socketRef.current = io('http://localhost:5001', {
       transports: ['websocket', 'polling'],
       timeout: 20000,
       reconnection: true,
@@ -88,7 +87,6 @@ export function ChatProvider({ children }) {
 
     socketRef.current.on('connected', (data) => {
       console.log('WebSocket connection confirmed:', data);
-      console.log('Tab ID:', data.tabId || 'Not provided');
       dispatch({ type: 'SET_CONNECTED', payload: true });
     });
 
@@ -112,7 +110,7 @@ export function ChatProvider({ children }) {
         socketRef.current.disconnect();
       }
     };
-  }, []);
+  }, []); // Empty dependency array ensures this only runs once
 
   // Check connection status on mount
   useEffect(() => {
@@ -228,6 +226,21 @@ export function ChatProvider({ children }) {
             htmlContent: data.content,
             metadata: data.metadata,
             htmlContentTitle: data.title || "Analysis Report",
+            isLoading: false,
+          }
+        });
+        // Reset global loading state
+        dispatch({ type: 'SET_LOADING', payload: false });
+        break;
+        
+      case 'with_citations':
+        dispatch({
+          type: 'UPDATE_LAST_MESSAGE',
+          payload: {
+            content: data.content || '',
+            citations: data.citations,
+            query: data.query,
+            citationsTimestamp: data.timestamp,
             isLoading: false,
           }
         });
