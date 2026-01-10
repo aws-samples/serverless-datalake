@@ -2,16 +2,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from '../contexts/ChatContext';
 import { Send, Trash2, Loader2 } from 'lucide-react';
 import ChatMessage from './ChatMessage';
-import ConnectionStatus from './ConnectionStatus';
 
 function ChatInterface() {
   const { 
     messages, 
     isLoading, 
-    isConnected, 
+    isConnected,
     sendMessage, 
     clearMessages,
-    checkConnection,
     socketRef 
   } = useChat();
   
@@ -62,9 +60,10 @@ function ChatInterface() {
 
   const exampleQueries = [
     "Investigate all tables in the Athena",
-    "Whats the insurance policy certificate",
     "Give me the schema of the iceberg_employees table in apache_iceberg database on Athena",
     "Get me a count of employees in the iceberg_employees table",
+    "Summarize the Amazon 10K filing report",
+    "Give me key insights on Spinosaurus",
     "List my vector buckets and indexes",
     "How many records are in the products table? I need evidence.",
     "Give me all data points on serverless-rag-demo repo under aws-samples org on Github",
@@ -98,7 +97,6 @@ function ChatInterface() {
             </div>
           </div>
           <div className="flex items-center space-x-4">
-            <ConnectionStatus isConnected={isConnected} />
             <button
               onClick={handleClearChat}
               className="modern-button-secondary flex items-center"

@@ -313,7 +313,7 @@ class SafeReactMarkdown extends React.Component {
             table({ children, ...props }) {
               return (
                 <div className="overflow-x-auto mb-3">
-                  <table className="min-w-full border border-gray-300" {...props}>
+                  <table className="min-w-full border border-gray-300" style="border-collapse: collapse;" {...props}>
                     {children}
                   </table>
                 </div>

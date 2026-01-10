@@ -11,6 +11,10 @@ const initialState = {
   isConnected: false,
   error: null,
   availableTools: [],
+  connectionStatus: 'disconnected', // 'connected', 'connecting', 'disconnected', 'reconnecting'
+  mcpStatus: {},
+  reconnectionAttempts: 0,
+  maxReconnectionAttempts: 5,
 };
 
 function chatReducer(state, action) {
@@ -19,6 +23,12 @@ function chatReducer(state, action) {
       return { ...state, isLoading: action.payload };
     case 'SET_CONNECTED':
       return { ...state, isConnected: action.payload };
+    case 'SET_CONNECTION_STATUS':
+      return { ...state, connectionStatus: action.payload };
+    case 'SET_MCP_STATUS':
+      return { ...state, mcpStatus: action.payload };
+    case 'SET_RECONNECTION_ATTEMPTS':
+      return { ...state, reconnectionAttempts: action.payload };
     case 'ADD_MESSAGE':
       return { 
         ...state, 
@@ -59,35 +69,74 @@ function chatReducer(state, action) {
 export function ChatProvider({ children }) {
   const [state, dispatch] = useReducer(chatReducer, initialState);
   const socketRef = useRef(null);
+  const reconnectionTimeoutRef = useRef(null);
+  const healthCheckIntervalRef = useRef(null);
 
-  // Initialize WebSocket connection
+  // Initialize WebSocket connection with enhanced reconnection
   useEffect(() => {
-    // Connect to WebSocket server directly without tab session management
+    connectWebSocket();
+    startHealthCheck();
+
+    // Cleanup on unmount
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+      if (reconnectionTimeoutRef.current) {
+        clearTimeout(reconnectionTimeoutRef.current);
+      }
+      if (healthCheckIntervalRef.current) {
+        clearInterval(healthCheckIntervalRef.current);
+      }
+    };
+  }, []); // Empty dependency array ensures this only runs once
+
+  const connectWebSocket = () => {
+    dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'connecting' });
+    
+    // Connect to WebSocket server with enhanced configuration
     socketRef.current = io('http://localhost:5001', {
       transports: ['websocket', 'polling'],
       timeout: 20000,
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000
+      reconnection: false, // We'll handle reconnection manually
+      forceNew: true
     });
 
     // Connection event handlers
     socketRef.current.on('connect', () => {
       console.log('WebSocket connected');
       dispatch({ type: 'SET_CONNECTED', payload: true });
+      dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'connected' });
+      dispatch({ type: 'SET_RECONNECTION_ATTEMPTS', payload: 0 });
       
       // Test connection with ping
       socketRef.current.emit('ping');
+      
+      // Check MCP status after connection
+      checkMCPStatus();
     });
 
-    socketRef.current.on('disconnect', () => {
-      console.log('WebSocket disconnected');
+    socketRef.current.on('disconnect', (reason) => {
+      console.log('WebSocket disconnected:', reason);
       dispatch({ type: 'SET_CONNECTED', payload: false });
+      dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'disconnected' });
+      
+      // Attempt reconnection if not manually disconnected
+      if (reason !== 'io client disconnect') {
+        scheduleReconnection();
+      }
     });
 
     socketRef.current.on('connected', (data) => {
       console.log('WebSocket connection confirmed:', data);
       dispatch({ type: 'SET_CONNECTED', payload: true });
+      dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'connected' });
+      
+      if (data.status === 'error') {
+        console.error('Connection error:', data.error);
+        toast.error(`Connection error: ${data.error}`);
+        scheduleReconnection();
+      }
     });
 
     socketRef.current.on('pong', (data) => {
@@ -97,20 +146,105 @@ export function ChatProvider({ children }) {
     socketRef.current.on('connect_error', (error) => {
       console.error('WebSocket connection error:', error);
       dispatch({ type: 'SET_CONNECTED', payload: false });
+      dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'disconnected' });
+      scheduleReconnection();
     });
 
     // Chat response event handler
     socketRef.current.on('chat_response', (data) => {
       handleChatResponse(data);
     });
+  };
 
-    // Cleanup on unmount
-    return () => {
+  const scheduleReconnection = () => {
+    if (state.reconnectionAttempts >= state.maxReconnectionAttempts) {
+      console.log('Max reconnection attempts reached');
+      dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'disconnected' });
+      toast.error('Connection lost. Please refresh the page or check your network.');
+      return;
+    }
+
+    dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'reconnecting' });
+    dispatch({ type: 'SET_RECONNECTION_ATTEMPTS', payload: state.reconnectionAttempts + 1 });
+
+    // Exponential backoff: 2^attempts * 1000ms, max 30 seconds
+    const delay = Math.min(Math.pow(2, state.reconnectionAttempts) * 1000, 30000);
+    
+    console.log(`Scheduling reconnection attempt ${state.reconnectionAttempts + 1} in ${delay}ms`);
+    
+    reconnectionTimeoutRef.current = setTimeout(() => {
+      console.log(`Attempting reconnection ${state.reconnectionAttempts + 1}/${state.maxReconnectionAttempts}`);
+      
       if (socketRef.current) {
         socketRef.current.disconnect();
       }
-    };
-  }, []); // Empty dependency array ensures this only runs once
+      
+      connectWebSocket();
+    }, delay);
+  };
+
+  const startHealthCheck = () => {
+    // Check MCP status every 30 seconds
+    healthCheckIntervalRef.current = setInterval(() => {
+      if (state.isConnected) {
+        checkMCPStatus();
+      }
+    }, 30000);
+  };
+
+  const checkMCPStatus = async () => {
+    try {
+      const response = await axios.get('/api/mcp-status');
+      dispatch({ type: 'SET_MCP_STATUS', payload: response.data });
+      
+      // Check if any MCP servers are disconnected
+      const servers = response.data.servers || {};
+      const disconnectedServers = Object.values(servers).filter(server => server.status !== 'connected');
+      
+      if (disconnectedServers.length > 0) {
+        console.warn('Some MCP servers are disconnected:', disconnectedServers);
+        // Optionally show a warning to the user
+        if (disconnectedServers.length === Object.keys(servers).length) {
+          toast.error('Not connected to MCP servers. Please ensure your servers are running.');
+        }
+      }
+    } catch (error) {
+      console.error('Failed to check MCP status:', error);
+      dispatch({ type: 'SET_MCP_STATUS', payload: { error: error.message } });
+    }
+  };
+
+  const forceReconnectMCP = async (mcpName = null) => {
+    try {
+      const response = await axios.post('/api/mcp-reconnect', {
+        mcp_name: mcpName
+      });
+      
+      toast.success(mcpName ? 
+        `Reconnection attempted for ${mcpName}` : 
+        'Reconnection attempted for all MCP servers'
+      );
+      
+      // Refresh MCP status after reconnection attempt
+      setTimeout(() => checkMCPStatus(), 2000);
+      
+      return response.data;
+    } catch (error) {
+      console.error('Failed to reconnect MCP servers:', error);
+      toast.error('Failed to reconnect MCP servers');
+      throw error;
+    }
+  };
+
+  const manualReconnect = () => {
+    dispatch({ type: 'SET_RECONNECTION_ATTEMPTS', payload: 0 });
+    
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+    }
+    
+    connectWebSocket();
+  };
 
   // Check connection status on mount
   useEffect(() => {
@@ -120,7 +254,12 @@ export function ChatProvider({ children }) {
   const checkConnection = async () => {
     try {
       const response = await axios.get('/api/health');
-      dispatch({ type: 'SET_CONNECTED', payload: response.data.status === 'ok' });
+      const isHealthy = response.data.status === 'healthy';
+      dispatch({ type: 'SET_CONNECTED', payload: isHealthy });
+      
+      if (isHealthy) {
+        checkMCPStatus();
+      }
     } catch (error) {
       dispatch({ type: 'SET_CONNECTED', payload: false });
       console.error('Connection check failed:', error);
@@ -336,6 +475,13 @@ export function ChatProvider({ children }) {
   const sendMessage = async (message) => {
     if (!message.trim()) return;
 
+    // Check connection before sending
+    if (!state.isConnected || state.connectionStatus !== 'connected') {
+      toast.error('Not connected to server. Attempting to reconnect...');
+      manualReconnect();
+      return;
+    }
+
     // Prevent layout shifts by scrolling to top before adding messages
     window.scrollTo(0, 0);
     
@@ -440,13 +586,18 @@ export function ChatProvider({ children }) {
         }
       });
       
+      // Handle both single interrupt (backward compatibility) and multiple interrupts
+      const interrupts = approvalData.interrupts || [approvalData];
+      const interruptIds = interrupts.map(interrupt => interrupt.interrupt_id || approvalData.interrupt_id);
+      const approvalResponses = new Array(interrupts.length).fill(approvalResponse);
+      
       // Send approval response via WebSocket
       if (socketRef.current && socketRef.current.connected) {
         socketRef.current.emit('tool_approval_response', {
           agent_name: approvalData.agent_name,
           query: approvalData.query,
-          interrupt_id: approvalData.interrupt_id,
-          approval_response: approvalResponse,
+          interrupt_ids: interruptIds, // Changed from interrupt_id to interrupt_ids (array)
+          approval_responses: approvalResponses, // Changed from approval_response to approval_responses (array)
           pending_responses: approvalData.pending_responses || [],
           remaining_plan: approvalData.remaining_plan || [],
           original_query: approvalData.original_query || ''
@@ -496,6 +647,9 @@ export function ChatProvider({ children }) {
     clearMessages,
     getAvailableTools,
     checkConnection,
+    checkMCPStatus,
+    forceReconnectMCP,
+    manualReconnect,
     socketRef,
     confirmPlan,
     rejectPlan,

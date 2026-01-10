@@ -1,5 +1,5 @@
 from mcp import stdio_client, StdioServerParameters
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.client.sse import sse_client
 from strands import Agent
 from strands.tools.mcp import MCPClient
@@ -37,6 +37,7 @@ from utils.response_summarizer import ResponseSummarizer, quick_summarize
 from utils.prompts import PromptTemplates
 from utils.models import ResponseType, AgentResponse, JsonFormatter
 from utils.json_utils import extract_and_fix_json, extract_and_merge_json, get_json_key
+from utils.conversation_history_rebuilder import ConversationHistoryRebuilder
 # Configure logging
 import sys
 
@@ -44,12 +45,20 @@ def setup_logging(config: ChatbotConfig):
     """Setup logging based on configuration."""
     log_level = getattr(logging, config.log_level.upper(), logging.INFO)
     
+    # Create logs directory in project root if it doesn't exist
+    current_file = pathlib.Path(__file__)
+    project_root = current_file.parent.parent.parent
+    logs_dir = project_root / "logs"
+    logs_dir.mkdir(exist_ok=True, parents=True)
+    
+    log_file_path = logs_dir / "database_mcp_clients.log"
+    
     logging.basicConfig(
         level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler("logs/database_mcp_clients.log")
+            logging.FileHandler(str(log_file_path))
         ]
     )
     
@@ -67,6 +76,12 @@ class MCPClientChatbot:
     """
     A persistent chatbot that connects to any database MCP server and stays running
     for continuous database interactions.
+    
+    This class provides unified MCP client management with:
+    - Automatic health checks and reconnection
+    - Configuration preservation across reconnections
+    - Consistent client creation and management
+    - Support for multiple transport types (SSE, stdio, streamable_http)
     """
 
     def __init__(
@@ -87,6 +102,12 @@ class MCPClientChatbot:
         self.is_running = False
         self.stream_callback = stream_callback
         self.mcp_clients = {}
+        self._health_check_task = None
+        self._health_check_interval = 30  # seconds
+        self._reconnection_attempts = {}
+        self._max_reconnection_attempts = 3
+        # Initialize conversation history rebuilder
+        self.rebuilder = ConversationHistoryRebuilder()
         
         # Use provided config or default
         self.config = config or DEFAULT_CONFIG
@@ -157,9 +178,246 @@ class MCPClientChatbot:
             self.orchestrate_agent = None
             raise e
 
+    def refresh_orchestrator_agent(self):
+        """Refresh the orchestrator agent with updated MCP client list."""
+        try:
+            logger.info("Refreshing orchestrator agent with updated MCP clients")
+            
+            # Get the current list of available agents
+            available_agents = list(self.mcp_clients.values())
+            logger.info(f"Available agents for orchestrator: {[agent.get('name', 'Unknown') for agent in available_agents]}")
+            
+            # Rebuild the orchestrator prompt with updated agent list
+            orchestrator_prompt = PromptTemplates.get_orchestrator_agent_prompt(available_agents)
+            
+            # Update the existing orchestrator agent's system prompt if it exists
+            if self.orchestrate_agent:
+                # Create a new orchestrator agent with updated prompt
+                self.orchestrate_agent = Agent(
+                    system_prompt=orchestrator_prompt, 
+                    model=self.model,
+                    conversation_manager=self.conversation_manager, 
+                    session_manager=self.multi_session_manager,
+                    agent_id=str(uuid.uuid4())
+                )
+                logger.info("Orchestrator agent refreshed successfully")
+            else:
+                # If orchestrator doesn't exist, create it
+                self.orchestrate_agent_builder()
+                logger.info("Orchestrator agent created during refresh")
+                
+        except Exception as e:
+            logger.error(f"Error refreshing orchestrator agent: {e}")
+            # Don't raise the exception to avoid breaking the reconnection process
+            logger.warning("Continuing without orchestrator agent refresh")
+
+    def _create_mcp_client(self, mcp_config: dict) -> MCPClient:
+        """
+        Create an MCP client based on the configuration.
+        
+        Args:
+            mcp_config: Configuration dictionary containing connection details
+            
+        Returns:
+            MCPClient instance
+        """
+        if mcp_config["is_sse"]:
+            headers = mcp_config.get("headers", {})
+            return MCPClient(lambda: sse_client(mcp_config["mcp_url"], headers=headers))
+        elif mcp_config["is_stdio"]:
+            return MCPClient(lambda: stdio_client(
+                StdioServerParameters(
+                    command=mcp_config["mcp_command"], 
+                    args=mcp_config["mcp_args"]
+                )
+            ))
+        elif mcp_config["is_streamable_http"]:
+            return MCPClient(lambda: streamable_http_client(mcp_config["mcp_url"]))
+        else:
+            raise ValueError(f"Unknown transport type for MCP client")
+
+    async def _initialize_mcp_client(self, mcp_name: str, server_config: dict) -> bool:
+        """
+        Initialize or reinitialize a single MCP client.
+        
+        Args:
+            mcp_name: Name of the MCP server
+            server_config: Raw server configuration from JSON
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Initializing {mcp_name} MCP client")
+            
+            # Process server configuration to internal format
+            processed_config = self._process_server_config(mcp_name, server_config)
+            
+            # Create MCP client
+            mcp_client = self._create_mcp_client(processed_config)
+            
+            # Test connection and get tools
+            with mcp_client:
+                tools = mcp_client.list_tools_sync()
+                
+                # Build tool configuration
+                tool_config = []
+                for tool in tools:
+                    tool_config.append({
+                        "name": tool.tool_name,
+                        "description": tool.tool_spec["description"],
+                        "inputSchema": tool.tool_spec["inputSchema"],
+                    })
+                
+                # Store the complete configuration
+                self.mcp_clients[mcp_name.lower()] = self._preserve_server_config(
+                    mcp_name, server_config, tool_config, is_reconnection=False
+                )
+                
+                logger.info(f"Successfully initialized {mcp_name} MCP client with {len(tools)} tools")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error initializing {mcp_name} MCP client: {e}")
+            return False
+
+    def _process_server_config(self, mcp_name: str, server_config: dict) -> dict:
+        """
+        Process raw server configuration into internal format.
+        
+        Args:
+            mcp_name: Name of the MCP server
+            server_config: Raw server configuration from JSON
+            
+        Returns:
+            Processed configuration dictionary
+        """
+        # Determine transport type
+        transport_type = server_config.get("transportType", "stdio")
+        
+        return {
+            "name": server_config.get("name", mcp_name),
+            "is_streamable_http": transport_type == "streamable_http",
+            "is_sse": transport_type == "sse", 
+            "is_stdio": transport_type not in ["streamable_http", "sse"],
+            "mcp_url": server_config.get("url", ""),
+            "mcp_command": server_config.get("command", ""),
+            "mcp_args": server_config.get("args", ""),
+            "headers": server_config.get("headers", {}),
+        }
+
+    def _preserve_server_config(self, mcp_name: str, server_config: dict, tool_config: list, is_reconnection: bool = False) -> dict:
+        """
+        Preserve all server configuration parameters when updating MCP client config.
+        
+        Args:
+            mcp_name: Name of the MCP server
+            server_config: Original server configuration (or existing mcp_client config for reconnection)
+            tool_config: Updated tool configuration
+            is_reconnection: True if this is a reconnection (config already processed), False for initial setup
+            
+        Returns:
+            Complete configuration dictionary with all parameters preserved
+        """
+        if is_reconnection:
+            # For reconnection, server_config is already the processed mcp_client config
+            # Just update the tools and preserve everything else
+            logger.debug(f"Preserving all configuration parameters for {mcp_name} during reconnection")
+            return {**server_config, "tools": tool_config}
+        else:
+            # For initial setup, process the raw server config from JSON
+            # Standard configuration keys that we handle explicitly
+            standard_keys = {
+                "name", "agent_type", "usage", "url", "command", "args", 
+                "transportType", "rules_prompt", "description", "headers", 
+                "disabled", "output_location"
+            }
+            
+            # Extract standard parameters
+            base_config = {
+                "agent_type": server_config.get("agent_type", "Others"),
+                "name": server_config.get("name", mcp_name),
+                "description": server_config.get("description", ""),
+                "is_streamable_http": server_config.get("transportType") == "streamable_http",
+                "is_sse": server_config.get("transportType") == "sse",
+                "is_stdio": server_config.get("transportType") not in ["streamable_http", "sse"],
+                "mcp_url": server_config.get("url", ""),
+                "mcp_command": server_config.get("command", ""),
+                "mcp_args": server_config.get("args", ""),
+                "tools": tool_config,
+                "rules_prompt": server_config.get("rules_prompt", ""),
+                "usage": server_config.get("usage", ""),
+                "headers": server_config.get("headers", {}),
+                "output_location": server_config.get("output_location", ""),
+                "transportType": server_config.get("transportType", ""),
+            }
+            
+            # Preserve any custom parameters not in the standard set
+            custom_params = {k: v for k, v in server_config.items() if k not in standard_keys}
+            
+            if custom_params:
+                logger.debug(f"Preserving custom configuration parameters for {mcp_name}: {list(custom_params.keys())}")
+            
+            # Combine base config with custom parameters
+            return {**base_config, **custom_params}
+        """
+        Preserve all server configuration parameters when updating MCP client config.
+        
+        Args:
+            mcp_name: Name of the MCP server
+            server_config: Original server configuration (or existing mcp_client config for reconnection)
+            tool_config: Updated tool configuration
+            is_reconnection: True if this is a reconnection (config already processed), False for initial setup
+            
+        Returns:
+            Complete configuration dictionary with all parameters preserved
+        """
+        if is_reconnection:
+            # For reconnection, server_config is already the processed mcp_client config
+            # Just update the tools and preserve everything else
+            logger.debug(f"Preserving all configuration parameters for {mcp_name} during reconnection")
+            return {**server_config, "tools": tool_config}
+        else:
+            # For initial setup, process the raw server config from JSON
+            # Standard configuration keys that we handle explicitly
+            standard_keys = {
+                "name", "agent_type", "usage", "url", "command", "args", 
+                "transportType", "rules_prompt", "description", "headers", 
+                "disabled", "output_location"
+            }
+            
+            # Extract standard parameters
+            base_config = {
+                "agent_type": server_config.get("agent_type", "Others"),
+                "name": server_config.get("name", mcp_name),
+                "description": server_config.get("description", ""),
+                "is_streamable_http": server_config.get("transportType") == "streamable_http",
+                "is_sse": server_config.get("transportType") == "sse",
+                "is_stdio": server_config.get("transportType") not in ["streamable_http", "sse"],
+                "mcp_url": server_config.get("url", ""),
+                "mcp_command": server_config.get("command", ""),
+                "mcp_args": server_config.get("args", ""),
+                "tools": tool_config,
+                "rules_prompt": server_config.get("rules_prompt", ""),
+                "usage": server_config.get("usage", ""),
+                "headers": server_config.get("headers", {}),
+                "output_location": server_config.get("output_location", ""),
+                "transportType": server_config.get("transportType", ""),
+            }
+            
+            # Preserve any custom parameters not in the standard set
+            custom_params = {k: v for k, v in server_config.items() if k not in standard_keys}
+            
+            if custom_params:
+                logger.debug(f"Preserving custom configuration parameters for {mcp_name}: {list(custom_params.keys())}")
+            
+            # Combine base config with custom parameters
+            return {**base_config, **custom_params}
+
     async def start(self):
         """Start the chatbot and initialize all components."""
         try:
+            self.is_running = True
             print("🤖 Starting MCP Chatbot...")
             print("=" * 50)
             logger.info("Starting MCP Chatbot")
@@ -171,85 +429,20 @@ class MCPClientChatbot:
                     logger.info(f"Skipping disabled MCP server: {mcp_name}")
                     continue
                     
-                mcp_name = server_config["name"] if "name" in server_config else str(mcp_name).capitalize()
-                is_streamable_http = False
-                is_sse = False
-                is_stdio = False
-                sse_url = server_config["url"] if "url" in server_config else ""
-                mcp_command = server_config["command"] if "command" in server_config else ""
-                mcp_args = server_config["args"] if "args" in server_config else ""
-                agent_type = server_config["agent_type"] if "agent_type" in server_config else "Others"
-                usage = server_config["usage"] if "usage" in server_config else ""
-                if "transportType" in server_config and server_config["transportType"]=='sse':
-                    is_sse = True
-                elif "transportType" in server_config and server_config["transportType"]=='streamable_http':
-                    is_streamable_http = True
-                else:
-                    is_stdio = True
-                specialized_agent_mcp_rules = server_config['rules_prompt'] if 'rules_prompt' in server_config else ""
-                server_description = server_config["description"] if "description" in server_config else ""
-                headers = server_config.get("headers", {})
-                try:
-                    logger.info(f"Initializing {mcp_name} MCP client at {sse_url}")
-                    mcp_client=None
-                    if is_sse:
-                        # Get headers from server config
-                        # if headers:
-                        #     logger.info(f"Using custom headers for {mcp_name}: {list(headers.keys())}")
-                        #     mcp_client = MCPClient(lambda: sse_client(sse_url, headers=headers))
-                        # else:
-                        mcp_client = MCPClient(lambda: sse_client(sse_url))
-                    
-                    elif is_stdio:
-                        mcp_client = MCPClient(lambda: stdio_client(
-                            StdioServerParameters(
-                                command=mcp_command, 
-                                args=mcp_args)))
-                
-                    elif is_streamable_http:
-                        # if headers:
-                        #     logger.info(f"Using custom headers for {mcp_name}: {list(headers.keys())}")
-                        #     mcp_client = MCPClient(lambda: streamablehttp_client(sse_url, headers=headers))
-                        # else:
-                        mcp_client = MCPClient(lambda: streamablehttp_client(sse_url))
-                        
-                    with mcp_client:
-                        tools = mcp_client.list_tools_sync()
-                        # Get Available tools
-                        tool_config = []
-                        for tool in tools:
-                            tool_config.append(
-                                {
-                                    "name": tool.tool_name,
-                                    "description": tool.tool_spec["description"],
-                                    "inputSchema": tool.tool_spec["inputSchema"],
-                                }
-                            )
-                        self.mcp_clients[mcp_name] = {
-                            "agent_type": agent_type,
-                            "name": mcp_name,
-                            "description": server_description,
-                            "is_streamable_http": is_streamable_http,
-                            "is_sse": is_sse,
-                            "is_stdio": is_stdio,
-                            "mcp_url": sse_url,
-                            "mcp_command": mcp_command,
-                            "mcp_args": mcp_args,
-                            "tools": tool_config,
-                            "rules_prompt": specialized_agent_mcp_rules,
-                            "usage": usage,
-                            "headers": server_config.get("headers", {})
-                        }
+                # Use the unified initialization method
+                success = await self._initialize_mcp_client(mcp_name, server_config)
+                if success:
                     print(f"🛠️ Initialized {mcp_name} MCP client")
-                    logger.info(f"Successfully initialized {mcp_name} MCP client with {len(tools)} tools")
-                except Exception as e:
-                    logger.error(f"Error initializing {mcp_name} MCP client: {e}")
-                    print(f"❌ Failed to initialize {mcp_name} MCP client: {e}")
+                else:
+                    print(f"❌ Failed to initialize {mcp_name} MCP client")
             
             print("✅ MCP Chatbot started successfully")
             print("🎯 Chatbot is ready to process requests via API!")
             # print("📊 Dashboard building capabilities enabled!")
             print("=" * 50)
+            
+            # Start health check task
+            self._health_check_task = asyncio.create_task(self._health_check_loop())
             
             logger.info("MCP Chatbot started successfully")
             return True
@@ -257,7 +450,54 @@ class MCPClientChatbot:
         except Exception as e:
             logger.error(f"Error starting chatbot: {e}")
             print(f"❌ Failed to start chatbot: {e}")
+            self.is_running = False
             raise e
+
+    async def force_reconnect_all(self):
+        """Force reconnection of all MCP clients."""
+        logger.info("Force reconnecting all MCP clients")
+        
+        for mcp_name, mcp_config in self.mcp_clients.items():
+            # Reset reconnection attempts
+            self._reconnection_attempts[mcp_name] = 0
+            await self._reconnect_mcp_client(mcp_name, mcp_config)
+        
+        # Refresh orchestrator agent with updated MCP clients
+        self.refresh_orchestrator_agent()
+
+    async def force_reconnect_client(self, mcp_name: str):
+        """Force reconnection of a specific MCP client."""
+        if mcp_name not in self.mcp_clients:
+            logger.error(f"MCP client {mcp_name} not found")
+            return False
+            
+        logger.info(f"Force reconnecting MCP client: {mcp_name}")
+        
+        # Reset reconnection attempts
+        self._reconnection_attempts[mcp_name] = 0
+        result = await self._reconnect_mcp_client(mcp_name, self.mcp_clients[mcp_name.lower()])
+        
+        # Refresh orchestrator agent with updated MCP clients
+        if result:
+            self.refresh_orchestrator_agent()
+            
+        return result
+
+    async def refresh_mcp_client(self, mcp_name: str, server_config: dict):
+        """Refresh an MCP client with new configuration."""
+        logger.info(f"Refreshing MCP client: {mcp_name}")
+        
+        # Reset reconnection attempts
+        self._reconnection_attempts[mcp_name] = 0
+        
+        # Use the unified initialization method
+        result = await self._initialize_mcp_client(mcp_name, server_config)
+        
+        # Refresh orchestrator agent with updated MCP clients
+        if result:
+            self.refresh_orchestrator_agent()
+            
+        return result
     
     def conversation_manager_builder(self):
         """Build the conversation manager with summarization capabilities."""
@@ -299,6 +539,30 @@ class MCPClientChatbot:
             tools_requiring_approval=None,  # Will use default list
             auto_approve_patterns=None      # Will use default patterns
         )
+
+        previous_messages=[]
+        # Restore conversation history for this specialized agent
+        try:
+            if self.multi_session_manager and hasattr(self.multi_session_manager, 'session_id'):
+                session_id = self.multi_session_manager.session_id
+                logger.info(f"Attempting to restore conversation history for specialized agent '{mcp_name}' in session '{session_id}'")
+                # Get conversations for all specialized agents in this session
+                specialized_conversations = self.rebuilder.get_specialized_agent_conversations(session_id)
+                
+                # Check if we have previous conversation for this specialized agent
+                if mcp_name in specialized_conversations:
+                    previous_messages = specialized_conversations[mcp_name]
+                    logger.info(f"Found {len(previous_messages)} previous messages for specialized agent '{mcp_name}'")
+                else:
+                    logger.info(f"No previous conversation found for specialized agent '{mcp_name}' - starting fresh")
+            else:
+                logger.warning("Session manager not available or missing session_id - cannot restore conversation history")
+                
+        except Exception as e:
+            logger.error(f"Error restoring conversation history for specialized agent '{mcp_name}': {e}")
+            # Don't fail agent creation if conversation restoration fails
+            logger.info(f"Continuing with fresh conversation for specialized agent '{mcp_name}'")
+        
         
         # Specialized MCP agent
         agent = Agent(
@@ -307,10 +571,14 @@ class MCPClientChatbot:
                 model=self.model,
                 system_prompt=AGENT_SYSTEM_PROMPT,
                 conversation_manager=self.conversation_manager, 
+                messages=previous_messages,
                 session_manager=self.multi_session_manager,
                 hooks=[approval_hook],  # Add the approval hook
                 agent_id=str(uuid.uuid4())
             )
+        agent.state.set("specialized_agent", mcp_name)
+        
+        
         return agent
     
     async def callback_handler(self, chunk):
@@ -334,38 +602,24 @@ class MCPClientChatbot:
 
     def get_mcp_client(self, mcp_name):
         """Get the MCP client."""
-        mcp_client = None
-        if mcp_name in self.mcp_clients:
-            mcp_config = self.mcp_clients[mcp_name]
-            if mcp_config["is_sse"]:
-                # Get headers from server config
-                headers = mcp_config.get("headers", {})
-                if headers:
-                    logger.info(f"Using custom headers for {mcp_name}: {list(headers.keys())}")
-                    mcp_client = MCPClient(
-                        lambda: sse_client(self.mcp_clients[mcp_name]["mcp_url"], headers=headers)
-                    )
-                else:
-                    mcp_client = MCPClient(
-                        lambda: sse_client(self.mcp_clients[mcp_name]["mcp_url"])
-                    )
-            elif mcp_config["is_stdio"]:
-                mcp_client = MCPClient(lambda: stdio_client(
-                    StdioServerParameters(
-                        command=mcp_config["mcp_command"], 
-                        args=mcp_config["mcp_args"])))
-            elif mcp_config["is_streamable_http"]:
-                mcp_client = MCPClient(lambda: streamablehttp_client(mcp_config['mcp_url']))
-                    
-        return mcp_client
+        if mcp_name not in self.mcp_clients:
+            return None
+            
+        mcp_config = self.mcp_clients[mcp_name.lower()]
+        return self._create_mcp_client(mcp_config)
     
     def create_all_agents(self, user_id, session_id=None):
         """Create all agents needed for the chatbot."""
         try:
             logger.info(f"Creating all agents for user {user_id}, session {session_id}")
             
-            # Create session manager
-            self.multi_session_manager = FileSessionManager(session_id=f"{user_id}_{session_id}", storage_dir="/user_sessions")
+            # Create session manager with project-relative path
+            current_file = pathlib.Path(__file__)
+            project_root = current_file.parent.parent.parent
+            sessions_dir = project_root / "user_sessions"
+            sessions_dir.mkdir(exist_ok=True, parents=True)
+            
+            self.multi_session_manager = FileSessionManager(session_id=f"{user_id}_{session_id}", storage_dir=str(sessions_dir))
             logger.info(f"Multi-Session manager created with ID: {user_id}_{session_id}")
             
             # Create conversation manager
@@ -397,7 +651,6 @@ class MCPClientChatbot:
         
         # Clean up response summarizer
         if self.response_summarizer:
-            self.response_summarizer.cleanup()
             self.response_summarizer = None
         
         # Clear collected data
@@ -416,11 +669,8 @@ class MCPClientChatbot:
         
         # Update response summarizer if it exists
         if self.response_summarizer:
-            self.response_summarizer.cleanup()
             self.response_summarizer = ResponseSummarizer(
-                model_id=self.config.model.cheaper_model_id,
-                session_id=f"summarizer_{self.session_manager.session_id if self.session_manager else int(time.time())}"
-            )
+                model_id=self.config.model.cheaper_model_id)
         
         # Update logger
         global logger
@@ -522,13 +772,13 @@ class MCPClientChatbot:
         Returns:
             Dictionary with execution result and any special handling needed
         """
-        agent_name = agent_config["agent_name"]
+        agent_name = agent_config["agent_name"].lower()
         step_number = agent_config.get("step_number", 1)
         
         logger.info(f"Executing step {step_number}: {agent_name}")
         
         # Handle user clarification requests
-        if agent_name.lower() == 'user':
+        if agent_name == 'user':
             clarification_msg = agent_config.get('clarification_message', 'Clarification needed')
             await self._stream_update('thinking', clarification_msg)
             agent_responses.append({"agent_name": agent_name, "response": clarification_msg})
@@ -560,11 +810,21 @@ class MCPClientChatbot:
                 approval_data["original_query"] = original_query
                 approval_data["pending_responses"] = agent_responses
                 
-                await self._stream_update(
-                    "tool_approval_needed",
-                    f"Tool approval required for {approval_data['agent_name']}",
-                    extra=approval_data
-                )
+                # Handle both single interrupt (backward compatibility) and multiple interrupts
+                if "interrupts" in approval_data:
+                    # Multiple interrupts
+                    await self._stream_update(
+                        "tool_approval_needed",
+                        f"Multiple tool approvals required for {approval_data['agent_name']} ({approval_data.get('total_interrupts', 0)} tools)",
+                        extra=approval_data
+                    )
+                else:
+                    # Single interrupt (backward compatibility)
+                    await self._stream_update(
+                        "tool_approval_needed",
+                        f"Tool approval required for {approval_data['agent_name']}",
+                        extra=approval_data
+                    )
                 
                 return {
                     "status": "approval_needed",
@@ -623,39 +883,56 @@ class MCPClientChatbot:
             await self._handle_error(f"Error executing remaining plan: {str(e)}")
             return {"type": ResponseType.ERROR.value, "content": f"Error executing remaining plan: {str(e)}"}
 
-    async def continue_with_tool_approval(self, agent_name: str, query: str, interrupt_id: str, 
-                                        approval_response: str, pending_responses: List = None,
+    async def continue_with_tool_approval(self, agent_name: str, query: str, interrupt_ids: list, 
+                                        approval_responses: list, pending_responses: List = None,
                                         remaining_plan: List = None, original_query: str = None) -> Optional[str]:
         """Continue agent execution after tool approval and resume the orchestrated plan."""
         try:
-            logger.info(f"Executing approved tool for {agent_name} with approval: {approval_response}")
+            logger.info(f"Executing approved tools for {agent_name} with {len(interrupt_ids)} approvals")
             
-            # Check if the user denied the request
-            if approval_response.lower() in ['deny', 'n', 'no']:
-                await self._stream_update("content", f"Tool execution denied by user for {agent_name}")
-                # If denied, we should still continue with the remaining plan
-                # if remaining_plan and len(remaining_plan) > 0:
-                    #logger.info("Tool denied, but continuing with remaining plan")
-                    # return await self._execute_remaining_plan(remaining_plan, original_query or query, pending_responses or [])
-                return "Tool execution denied by user"
+            # Check if any user denied the requests
+            denied_tools = []
+            approved_tools = []
+            
+            for i, (interrupt_id, approval_response) in enumerate(zip(interrupt_ids, approval_responses)):
+                if approval_response.lower() in ['deny', 'n', 'no']:
+                    tool_name = self._pending_tool_calls.get(interrupt_id, {}).get('tool_name', 'unknown')
+                    denied_tools.append(tool_name)
+                else:
+                    approved_tools.append(interrupt_id)
+            
+            if denied_tools:
+                denied_msg = f"Tool execution denied by user for: {', '.join(denied_tools)}"
+                await self._stream_update("content", denied_msg)
+                logger.info(f"Tools denied: {denied_tools}")
+                # Continue with remaining plan even if some tools were denied
+                if remaining_plan and len(remaining_plan) > 0:
+                    return await self._execute_remaining_plan(remaining_plan, original_query or query, pending_responses or [])
+                return denied_msg
             
             # Import the approval cache functions
             from .hooks.approval_hooks import set_tool_approval, clear_tool_approval
             
-            # Extract the tool name from the pending tool calls
-            tool_name = self._pending_tool_calls.get(interrupt_id, {}).get('tool_name', 'unknown')
+            # Set approvals for all interrupt IDs
+            always_approve_tools = []
+            for i, (interrupt_id, approval_response) in enumerate(zip(interrupt_ids, approval_responses)):
+                # Extract the tool name from the pending tool calls
+                tool_name = self._pending_tool_calls.get(interrupt_id, {}).get('tool_name', 'unknown')
+                
+                # Set the approval for this specific tool
+                set_tool_approval(interrupt_id, tool_name, approval_response)
+                
+                # If user chose "always", also set the specific tool for always approve
+                if approval_response.lower() in ["always", "a"]:
+                    if tool_name != 'unknown':
+                        self.set_tool_always_approve(tool_name)
+                        always_approve_tools.append(tool_name)
             
-            # Set the approval for this specific tool
-            set_tool_approval(interrupt_id, tool_name, approval_response)
-            
-            # If user chose "always", also set the specific tool for always approve
-            if approval_response.lower() in ["always", "a"]:
-                if tool_name != 'unknown':
-                    self.set_tool_always_approve(tool_name)
-                    logger.info(f"Tool {tool_name} added to always approve list")
+            if always_approve_tools:
+                logger.info(f"Tools added to always approve list: {always_approve_tools}")
             
             try:
-                # Re-execute the agent with the approval cached
+                # Re-execute the agent with all approvals cached
                 query = self._build_enhanced_query(original_query, pending_responses)
                 result = await self._execute_agent(agent_name, query)
                 if 'pending_responses' in result:
@@ -671,7 +948,7 @@ class MCPClientChatbot:
                     
                     await self._stream_update(
                     "tool_approval_needed",
-                    f"Tool approval required for {result['agent_name']}",
+                    f"Additional tool approval required for {result['agent_name']}",
                     extra=result)
 
                     return result
@@ -691,12 +968,13 @@ class MCPClientChatbot:
                     return await self._process_final_responses(agent_responses, original_query, False)
                     
             finally:
-                # Clean up the temporary approval
-                clear_tool_approval(interrupt_id)
+                # Clean up all temporary approvals
+                for interrupt_id in interrupt_ids:
+                    clear_tool_approval(interrupt_id)
                     
         except Exception as e:
             logger.error(f"Error continuing agent execution after approval: {e}")
-            await self._stream_update("error", f"Error executing approved tool: {str(e)}")
+            await self._stream_update("error", f"Error executing approved tools: {str(e)}")
             return None
 
     async def continue_with_confirmed_plan(self, plan: list, original_query: str, stream_callback, user_id: str = "default", session_id: str="None", is_single_widget=False):
@@ -782,18 +1060,34 @@ class MCPClientChatbot:
             
             # Check if we got an approval request instead of a normal response
             if isinstance(response, dict) and response.get("type") == "tool_approval_needed":
-                # Stream the approval request to the UI
-                await self._stream_update(
-                    "tool_approval_needed",
-                    f"Tool approval required for {agent_name}",
-                    extra={
-                        "interrupt_id": response["interrupt_id"],
-                        "reason": response["reason"],
-                        "agent_name": response["agent_name"],
-                        "query": response["query"],
-                        "pending_responses": response.get("pending_responses", [])
-                    }
-                )
+                # Handle both single interrupt (backward compatibility) and multiple interrupts
+                if "interrupts" in response:
+                    # Multiple interrupts - new format
+                    await self._stream_update(
+                        "tool_approval_needed",
+                        f"Multiple tool approvals required for {agent_name} ({response.get('total_interrupts', 0)} tools)",
+                        extra={
+                            "interrupts": response["interrupts"],
+                            "agent_name": response["agent_name"],
+                            "query": response["query"],
+                            "pending_responses": response.get("pending_responses", []),
+                            "total_interrupts": response.get("total_interrupts", 0),
+                            "auto_approved_count": response.get("auto_approved_count", 0)
+                        }
+                    )
+                else:
+                    # Single interrupt - backward compatibility
+                    await self._stream_update(
+                        "tool_approval_needed",
+                        f"Tool approval required for {agent_name}",
+                        extra={
+                            "interrupt_id": response.get("interrupt_id"),
+                            "reason": response.get("reason"),
+                            "agent_name": response["agent_name"],
+                            "query": response["query"],
+                            "pending_responses": response.get("pending_responses", [])
+                        }
+                    )
                 
                 # Return a special response indicating approval is needed
                 return AgentResponse(
@@ -994,7 +1288,184 @@ class MCPClientChatbot:
     def stop(self):
         """Stop the chatbot."""
         self.is_running = False
+        
+        # Cancel health check task
+        if self._health_check_task and not self._health_check_task.done():
+            self._health_check_task.cancel()
+            logger.info("Health check task cancelled")
+        
         print("🛑 Stopping chatbot...")
+
+    async def _health_check_loop(self):
+        """Periodic health check loop for MCP connections."""
+        logger.info("Starting health check loop")
+        
+        while self.is_running:
+            try:
+                await asyncio.sleep(self._health_check_interval)
+                if not self.is_running:
+                    break
+                    
+                await self._check_mcp_connections()
+                
+            except asyncio.CancelledError:
+                logger.info("Health check loop cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in health check loop: {e}")
+                await asyncio.sleep(5)  # Wait before retrying
+
+    async def _check_mcp_connections(self):
+        """Check health of all MCP connections and reconnect if needed."""
+        logger.debug("Checking MCP connection health")
+        
+        for mcp_name, mcp_config in self.mcp_clients.items():
+            try:
+                # Test connection by trying to list tools
+                is_healthy = await self._test_mcp_connection(mcp_name)
+                
+                if not is_healthy:
+                    logger.warning(f"MCP connection {mcp_name} is unhealthy, attempting reconnection")
+                    await self._reconnect_mcp_client(mcp_name, mcp_config)
+                else:
+                    # Reset reconnection attempts on successful health check
+                    self._reconnection_attempts[mcp_name] = 0
+                    
+            except Exception as e:
+                logger.error(f"Error checking health for {mcp_name}: {e}")
+
+    async def _test_mcp_connection(self, mcp_name: str) -> bool:
+        """Test if an MCP connection is healthy."""
+        try:
+            mcp_client = self.get_mcp_client(mcp_name)
+            if not mcp_client:
+                return False
+                
+            # Test connection with a timeout
+            with mcp_client:
+                # Try to list tools as a health check
+                tools = mcp_client.list_tools_sync()
+                return len(tools) >= 0  # Even 0 tools is a valid response
+                
+        except Exception as e:
+            logger.debug(f"Health check failed for {mcp_name}: {e}")
+            return False
+
+    async def _reconnect_mcp_client(self, mcp_name: str, mcp_config: dict):
+        """Attempt to reconnect a failed MCP client."""
+        # Track reconnection attempts
+        attempts = self._reconnection_attempts.get(mcp_name, 0)
+        
+        if attempts >= self._max_reconnection_attempts:
+            logger.error(f"Max reconnection attempts reached for {mcp_name}")
+            return False
+            
+        self._reconnection_attempts[mcp_name] = attempts + 1
+        
+        try:
+            logger.info(f"Reconnecting {mcp_name} (attempt {attempts + 1}/{self._max_reconnection_attempts})")
+            
+            # Exponential backoff
+            backoff_delay = min(2 ** attempts, 30)  # Max 30 seconds
+            await asyncio.sleep(backoff_delay)
+            
+            # Create MCP client using existing config
+            mcp_client = self._create_mcp_client(mcp_config)
+            
+            # Test the new connection
+            with mcp_client:
+                tools = mcp_client.list_tools_sync()
+                logger.info(f"Successfully reconnected {mcp_name} with {len(tools)} tools")
+                
+                # Update tool config
+                tool_config = []
+                for tool in tools:
+                    tool_config.append({
+                        "name": tool.tool_name,
+                        "description": tool.tool_spec["description"],
+                        "inputSchema": tool.tool_spec["inputSchema"],
+                    })
+                
+                # Update the stored config with all original parameters preserved
+                self.mcp_clients[mcp_name.lower()] = self._preserve_server_config(
+                    mcp_name, mcp_config, tool_config, is_reconnection=True
+                )
+                
+                # Reset reconnection attempts on success
+                self._reconnection_attempts[mcp_name] = 0
+                return True
+                    
+        except Exception as e:
+            logger.error(f"Failed to reconnect {mcp_name}: {e}")
+            
+        return False
+
+    async def retry_failed_initialization(self, mcp_name: str):
+        """Retry initialization of a server that failed to initialize."""
+        if mcp_name not in self.sse_urls:
+            logger.error(f"Server {mcp_name} not found in configuration")
+            return False
+            
+        server_config = self.sse_urls[mcp_name]
+        
+        # Skip if disabled
+        if server_config.get("disabled", False):
+            logger.info(f"Skipping disabled server: {mcp_name}")
+            return False
+            
+        logger.info(f"Retrying initialization for {mcp_name}")
+        
+        # Reset reconnection attempts
+        self._reconnection_attempts[mcp_name] = 0
+        
+        # Use the unified initialization method
+        return await self._initialize_mcp_client(mcp_name, server_config)
+
+    async def get_all_server_status(self) -> dict:
+        """Get status of all configured servers, including uninitialized ones."""
+        status = {}
+        
+        # First, add all configured servers
+        for server_key, server_config in self.sse_urls.items():
+            server_name = server_config.get("name", str(server_key).capitalize())
+            status[server_name] = {
+                "configured": True,
+                "initialized": server_name in self.mcp_clients,
+                "connected": False,
+                "reconnection_attempts": self._reconnection_attempts.get(server_name, 0),
+                "max_attempts_reached": self._reconnection_attempts.get(server_name, 0) >= self._max_reconnection_attempts,
+                "disabled": server_config.get("disabled", False)
+            }
+        
+        # Then update with actual connection status for initialized clients
+        for mcp_name in self.mcp_clients.keys():
+            is_healthy = await self._test_mcp_connection(mcp_name)
+            attempts = self._reconnection_attempts.get(mcp_name, 0)
+            
+            if mcp_name in status:
+                status[mcp_name].update({
+                    "connected": is_healthy,
+                    "reconnection_attempts": attempts,
+                    "max_attempts_reached": attempts >= self._max_reconnection_attempts
+                })
+            
+        return status
+
+    async def get_connection_status(self) -> dict:
+        """Get the current connection status of all MCP clients."""
+        status = {}
+        
+        for mcp_name in self.mcp_clients.keys():
+            is_healthy = await self._test_mcp_connection(mcp_name)
+            attempts = self._reconnection_attempts.get(mcp_name, 0)
+            
+            status[mcp_name] = {
+                "connected": is_healthy,
+                "reconnection_attempts": attempts,
+                "max_attempts_reached": attempts >= self._max_reconnection_attempts
+            }
+            
+        return status
 
     async def _execute_agent(self, agent_name: str, query: str) -> Optional[str]:
         """Execute a specific agent and return its response, handling interrupts."""
@@ -1036,6 +1507,11 @@ class MCPClientChatbot:
                     responses = []
                     agent_msg = f"""Agent {agent_name} Execution Details {agent_resp}.{tool_execution_details}"""
                     responses.append({"agent_name": agent_name, "response": agent_msg})
+                    
+                    # Collect all interrupts that need user approval
+                    pending_interrupts = []
+                    auto_approved_count = 0
+                    
                     for interrupt in result.interrupts:
                         if interrupt.name.endswith("-tool-approval"):
                             # Check if this tool has been marked for "always approve"
@@ -1047,6 +1523,7 @@ class MCPClientChatbot:
                                 logger.info(f"Tool {tool_name} has 'always approve' status, continuing execution")
                                 # Continue execution without interrupting the user
                                 interrupt.respond("always")
+                                auto_approved_count += 1
                                 continue
                             
                             # Check global approval cache for temporary "always" approvals
@@ -1063,27 +1540,51 @@ class MCPClientChatbot:
                                     # Continue execution without interrupting the user
                                     interrupt.respond("always")
                                     auto_approved = True
+                                    auto_approved_count += 1
                                     break
                             
-                            if auto_approved:
-                                continue
-                            
-                            # No auto-approval found, stream the approval request to the user
+                            if not auto_approved:
+                                # Add to pending interrupts list
+                                pending_interrupts.append(interrupt)
+                    
+                    # If we have interrupts that need user approval, return them all
+                    if pending_interrupts:
+                        logger.info(f"Found {len(pending_interrupts)} interrupts requiring approval, {auto_approved_count} auto-approved")
+                        
+                        # Stream approval requests for all pending interrupts
+                        interrupt_data = []
+                        for interrupt in pending_interrupts:
                             await self._stream_approval_request(interrupt)
                             
-                            # Return the interrupt to be handled by the UI
-                            # This follows the same pattern as orchestrator confirmation
-                            return {
-                                "type": "tool_approval_needed",
+                            # Store interrupt data
+                            interrupt_info = {
                                 "interrupt_id": interrupt.id,
                                 "reason": interrupt.reason,
-                                "agent_name": agent_name,
-                                "query": query,
-                                "pending_responses": responses
+                                "tool_name": interrupt.reason.get('tool_name', 'Unknown'),
+                                "risk_level": interrupt.reason.get('risk_level', 'Unknown'),
+                                "summary": interrupt.reason.get('summary', 'No summary available'),
+                                "details": interrupt.reason.get('details', {})
                             }
+                            interrupt_data.append(interrupt_info)
+                        
+                        # Return all interrupts to be handled by the UI
+                        return {
+                            "type": "tool_approval_needed",
+                            "interrupts": interrupt_data,  # Changed from single interrupt to list
+                            "agent_name": agent_name,
+                            "query": query,
+                            "pending_responses": responses,
+                            "total_interrupts": len(pending_interrupts),
+                            "auto_approved_count": auto_approved_count
+                        }
                     
-                    # This code should not be reached in the new flow
-                    # but kept for backward compatibility
+                    # If all interrupts were auto-approved, continue execution
+                    if auto_approved_count > 0:
+                        logger.info(f"All {auto_approved_count} interrupts were auto-approved, continuing execution")
+                        # Continue to next iteration or completion
+                        break
+                    
+                    # This should not be reached, but kept for safety
                     break
                 
                 # Process the final result
@@ -1117,19 +1618,8 @@ class MCPClientChatbot:
         
         logger.info(f"Stored tool call info for interrupt {interrupt.id}: {tool_name} with input: {tool_input}")
         
-        approval_message = f"""
-        🔐 **Approval Required**
-        **Tool:** {reason.get('tool_name', 'Unknown')}
-        **Risk Level:** {reason.get('risk_level', 'Unknown').upper()}
-        **Summary:** {reason.get('summary', 'No summary available')}
-        **Details:**
-        """
-        for key, value in reason.get('details', {}).items():
-            approval_message += f"- **{key.replace('_', ' ').title()}:** {value}\n"
-            
-        approval_message += "\n**Do you want to proceed with this operation?**"
-        
-        await self._stream_update("thinking", approval_message)
+        # Note: We don't stream individual approval messages here anymore
+        # The consolidated approval request will be streamed from _execute_agent
 
     async def _generate_business_analysis_report(self, combined_response: str, user_query: str) -> Dict[str, Any]:
         """Generate business analysis report with error handling."""

@@ -42,7 +42,7 @@ class PromptTemplates:
             str: The orchestrator agent system prompt
         """
         agents_info = ', '.join([
-            f"Agent: {client['name']}, MCP_Agent: yes, Type: {client['agent_type']}, "
+            f"Agent: {client['name'].lower()}, MCP_Agent: yes, Type: {client['agent_type']}, "
             f"Description: {client['description']} {client['usage']}" 
             for client in available_agents
         ])

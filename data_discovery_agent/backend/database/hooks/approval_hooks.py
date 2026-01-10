@@ -5,7 +5,7 @@ Intercepts specific tool calls and requests user approval before execution.
 
 import logging
 from typing import Dict, Any, List
-from strands.hooks import BeforeToolCallEvent, HookProvider, HookRegistry
+from strands.hooks import BeforeToolCallEvent, HookProvider, HookRegistry, AfterToolCallEvent
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,11 @@ class MCPToolApprovalHook(HookProvider):
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register the approval hook for BeforeToolCallEvent."""
         registry.add_callback(BeforeToolCallEvent, self.approve_tool_call)
-        
+        registry.add_callback(AfterToolCallEvent, self.fetch_tool_call_result)
+    
+    def fetch_tool_call_result(self, event: BeforeToolCallEvent) -> None:
+        print(event)
+
     def approve_tool_call(self, event: BeforeToolCallEvent) -> None:
         """
         Intercept tool calls and request approval for sensitive tools.
