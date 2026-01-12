@@ -106,6 +106,7 @@ class GraphMCPChatbot:
         self.original_query = None
         self.current_user_id = None
         self.current_session_id = None
+        self.internal_agents = {"orchestrator", "response_summarizer", "verifier"}
         self.conversation_manager = SlidingWindowConversationManager(
     window_size=20,  # Maximum number of messages to keep
     should_truncate_results=True, # Enable truncating the tool result when a message is too large for the model's context window
@@ -525,37 +526,39 @@ class GraphMCPChatbot:
                     # Track node execution start
                     if event.get("type") == "multiagent_node_start":
                         node_id = event.get('node_id', 'unknown')
-                        await self._stream_update("thinking", f"🔄 Starting {node_id} agent...")
+                        if node_id not in self.internal_agents:
+                            await self._stream_update("thinking", f"🔄 Starting {node_id} agent...")
                     
-                    # Monitor agent events within nodes (streaming content from agents)
-                    # elif event.get("type") == "multiagent_node_stream":
-                    #     inner_event = event.get("event", {})
-                    #     node_id = event.get('node_id', 'unknown')
-                        
-                        # Stream agent thinking/content
-                        # if "data" in inner_event:
-                        #     content = str(inner_event["data"])
-                        #     await self._stream_update("thinking", f"💭 {node_id}: {content}")
+                    #Monitor agent events within nodes (streaming content from agents)
+                    elif event.get("type") == "multiagent_node_stream":
+                        inner_event = event.get("event", {})
+                        node_id = event.get('node_id', 'unknown')
+                        if node_id not in self.internal_agents:
+                            #Stream agent thinking/content
+                            if "data" in inner_event:
+                                content = str(inner_event["data"])
+                                await self._stream_update("thinking", f"{node_id}: {content}")
                         
                     
                     # Track node completion
                     elif event.get("type") == "multiagent_node_stop":
                         node_id = event.get('node_id', 'unknown')
-                        node_result = event.get("node_result")
-                        
-                        if node_result and hasattr(node_result, 'execution_time'):
-                            execution_time = node_result.execution_time
-                            await self._stream_update("thinking", f"✅ {node_id} completed in {execution_time}ms")
-                        else:
-                            await self._stream_update("thinking", f"✅ {node_id} completed")
-                        
-                        # If it's a specialist agent, collect the data
-                        if node_id in self.mcp_clients and node_result:
-                            json_resp = extract_and_fix_json(str(node_result.result))
-                            if json_resp:
-                                self.collected_datasets.append(str(json_resp))
-                                self.total_datasets += 1
-                                await self._stream_update("thinking", f"📊 Collected data from {node_id}")
+                        if node_id not in self.internal_agents:
+                            node_result = event.get("node_result")
+                            
+                            if node_result and hasattr(node_result, 'execution_time'):
+                                execution_time = node_result.execution_time
+                                await self._stream_update("thinking", f"✅ {node_id} completed in {execution_time}ms")
+                            else:
+                                await self._stream_update("thinking", f"✅ {node_id} completed")
+                            
+                            # If it's a specialist agent, collect the data
+                            if node_id in self.mcp_clients and node_result:
+                                json_resp = extract_and_fix_json(str(node_result.result))
+                                if json_resp:
+                                    self.collected_datasets.append(str(json_resp))
+                                    self.total_datasets += 1
+                                    await self._stream_update("thinking", f"📊 Collected data from {node_id}")
                     
                     # Get final result
                     elif event.get("type") == "multiagent_result":
@@ -639,7 +642,6 @@ class GraphMCPChatbot:
                     # Validate the plan structure
                     if isinstance(plan, list) and len(plan) > 0:
                         # Filter out internal agents (Response_Summarizer, Verifier)
-                        internal_agents = {"response_summarizer", "verifier"}
                         filtered_plan = []
                         
                         for i, step in enumerate(plan):
@@ -650,7 +652,7 @@ class GraphMCPChatbot:
                             agent_name = step.get('agent_name', '').lower()
                             
                             # Skip internal agents
-                            if agent_name in internal_agents:
+                            if agent_name in self.internal_agents:
                                 logger.debug(f"Filtering out internal agent: {agent_name}")
                                 continue
                             
@@ -680,13 +682,12 @@ class GraphMCPChatbot:
                     plan = json.loads(match.strip())
                     if isinstance(plan, list) and len(plan) > 0:
                         # Apply same filtering logic
-                        internal_agents = {"response_summarizer", "verifier"}
                         filtered_plan = []
                         
                         for step in plan:
                             if isinstance(step, dict):
                                 agent_name = step.get('agent_name', '').lower()
-                                if agent_name not in internal_agents:
+                                if agent_name not in self.internal_agents:
                                     if 'step_number' not in step:
                                         step['step_number'] = len(filtered_plan) + 1
                                     else:

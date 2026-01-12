@@ -15,6 +15,7 @@ const initialState = {
   mcpStatus: {},
   reconnectionAttempts: 0,
   maxReconnectionAttempts: 5,
+  isPlanDialogOpen: false, // Track if plan confirmation dialog is open
 };
 
 function chatReducer(state, action) {
@@ -29,6 +30,8 @@ function chatReducer(state, action) {
       return { ...state, mcpStatus: action.payload };
     case 'SET_RECONNECTION_ATTEMPTS':
       return { ...state, reconnectionAttempts: action.payload };
+    case 'SET_PLAN_DIALOG_OPEN':
+      return { ...state, isPlanDialogOpen: action.payload };
     case 'ADD_MESSAGE':
       return { 
         ...state, 
@@ -59,7 +62,9 @@ function chatReducer(state, action) {
                   : msg.content
               }
             : msg
-        )
+        ),
+        // Set plan dialog open state when confirmation is needed
+        isPlanDialogOpen: action.payload.needsConfirmation !== undefined ? action.payload.needsConfirmation : state.isPlanDialogOpen
       };
     case 'SET_ERROR':
       return { ...state, error: action.payload };
@@ -82,6 +87,7 @@ export function ChatProvider({ children }) {
   useEffect(() => {
     connectWebSocket();
     startHealthCheck();
+    checkMCPStatus();
 
     // Cleanup on unmount
     return () => {
@@ -568,6 +574,29 @@ export function ChatProvider({ children }) {
     dispatch({ type: 'SET_LOADING', payload: false });
   };
 
+  const startNewConversation = () => {
+    // Clear messages first
+    dispatch({ type: 'CLEAR_MESSAGES' });
+    dispatch({ type: 'SET_LOADING', payload: false });
+    dispatch({ type: 'SET_PLAN_DIALOG_OPEN', payload: false });
+    
+    // Disconnect and reconnect WebSocket to get new client_id
+    if (socketRef.current) {
+      console.log('Starting new conversation - reinitializing WebSocket connection');
+      socketRef.current.removeAllListeners();
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+    
+    // Reset reconnection attempts
+    dispatch({ type: 'SET_RECONNECTION_ATTEMPTS', payload: 0 });
+    
+    // Reconnect after a brief delay to ensure clean disconnection
+    setTimeout(() => {
+      connectWebSocket();
+    }, 500);
+  };
+
   const getAvailableTools = async () => {
     try {
       const response = await axios.get('/api/orchestrator/agents');
@@ -580,6 +609,9 @@ export function ChatProvider({ children }) {
   const confirmPlan = async (plan, original_query, is_single_widget=false) => {
     try {
       console.log('confirmPlan called with:', { plan, original_query, is_single_widget });
+      
+      // Close plan dialog
+      dispatch({ type: 'SET_PLAN_DIALOG_OPEN', payload: false });
       
       // Update the last message to show loading state
       dispatch({
@@ -669,6 +701,9 @@ export function ChatProvider({ children }) {
   };
 
   const rejectPlan = async (plan, original_query, feedback = '') => {
+    // Close plan dialog
+    dispatch({ type: 'SET_PLAN_DIALOG_OPEN', payload: false });
+    
     // Update the last message to show rejection and ask for new approach
     dispatch({
       type: 'UPDATE_LAST_MESSAGE',
@@ -711,6 +746,7 @@ export function ChatProvider({ children }) {
     ...state,
     sendMessage,
     clearMessages,
+    startNewConversation,
     getAvailableTools,
     checkConnection,
     checkMCPStatus,

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from '../contexts/ChatContext';
-import { Send, Trash2, Loader2 } from 'lucide-react';
+import { Send, MessageSquarePlus, Loader2 } from 'lucide-react';
 import ChatMessage from './ChatMessage';
 
 function ChatInterface() {
@@ -8,13 +8,14 @@ function ChatInterface() {
     messages, 
     isLoading, 
     isConnected,
+    isPlanDialogOpen,
     sendMessage, 
-    clearMessages,
-    socketRef 
+    startNewConversation
   } = useChat();
   
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [showNewConversationDialog, setShowNewConversationDialog] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -33,7 +34,7 @@ function ChatInterface() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!inputValue.trim() || isLoading) return;
+    if (!inputValue.trim() || isLoading || isPlanDialogOpen) return;
 
     const message = inputValue.trim();
     setInputValue('');
@@ -53,9 +54,17 @@ function ChatInterface() {
     }
   };
   
-  const handleClearChat = () => {
-    // Clear messages in the state
-    clearMessages();
+  const handleNewConversation = () => {
+    setShowNewConversationDialog(true);
+  };
+
+  const confirmNewConversation = () => {
+    setShowNewConversationDialog(false);
+    startNewConversation();
+  };
+
+  const cancelNewConversation = () => {
+    setShowNewConversationDialog(false);
   };
 
   const exampleQueries = [
@@ -98,11 +107,11 @@ function ChatInterface() {
           </div>
           <div className="flex items-center space-x-4">
             <button
-              onClick={handleClearChat}
+              onClick={handleNewConversation}
               className="modern-button-secondary flex items-center"
             >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Clear Chat
+              <MessageSquarePlus className="h-4 w-4 mr-2" />
+              New Conversation
             </button>
           </div>
         </div>
@@ -178,16 +187,16 @@ function ChatInterface() {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask me anything about your data..."
+              placeholder={isPlanDialogOpen ? "Please respond to the plan above..." : "Ask me anything about your data..."}
               className="w-full px-4 py-3 border border-detective-300 bg-white text-detective-900 rounded-xl focus:ring-2 focus:ring-detective-accent focus:border-detective-accent resize-none placeholder-detective-500"
               rows="1"
-              disabled={isLoading || !isConnected}
+              disabled={isLoading || !isConnected || isPlanDialogOpen}
               style={{ minHeight: '48px', maxHeight: '120px' }}
             />
           </div>
           <button
             type="submit"
-            disabled={!inputValue.trim() || isLoading || !isConnected}
+            disabled={!inputValue.trim() || isLoading || !isConnected || isPlanDialogOpen}
             className="modern-button px-6 py-3 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? (
@@ -205,7 +214,45 @@ function ChatInterface() {
             </p>
           </div>
         )}
+        
+        {isPlanDialogOpen && (
+          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-800">
+              💭 Please respond to the plan confirmation above before sending new messages.
+            </p>
+          </div>
+        )}
       </div>
+
+      {/* New Conversation Confirmation Dialog */}
+      {showNewConversationDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl">
+            <div className="flex items-center mb-4">
+              <MessageSquarePlus className="h-6 w-6 text-detective-accent mr-3" />
+              <h3 className="text-lg font-semibold text-gray-900">Start New Conversation</h3>
+            </div>
+            <p className="text-gray-600 mb-6">
+              This will delete your current conversation and start fresh with a new session. 
+              All messages and context will be lost. Are you sure you want to continue?
+            </p>
+            <div className="flex space-x-3 justify-end">
+              <button
+                onClick={cancelNewConversation}
+                className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmNewConversation}
+                className="px-4 py-2 text-white bg-detective-accent rounded-lg hover:bg-detective-accent/90 transition-colors"
+              >
+                Start New Conversation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
