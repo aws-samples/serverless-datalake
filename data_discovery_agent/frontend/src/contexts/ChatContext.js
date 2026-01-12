@@ -80,7 +80,9 @@ export function ChatProvider({ children }) {
     // Cleanup on unmount
     return () => {
       if (socketRef.current) {
+        socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
+        socketRef.current = null;
       }
       if (reconnectionTimeoutRef.current) {
         clearTimeout(reconnectionTimeoutRef.current);
@@ -99,7 +101,9 @@ export function ChatProvider({ children }) {
       transports: ['websocket', 'polling'],
       timeout: 20000,
       reconnection: false, // We'll handle reconnection manually
-      forceNew: true
+      forceNew: false, // Don't force new connections - reuse if possible
+      upgrade: true,
+      rememberUpgrade: true
     });
 
     // Connection event handlers
@@ -175,8 +179,11 @@ export function ChatProvider({ children }) {
     reconnectionTimeoutRef.current = setTimeout(() => {
       console.log(`Attempting reconnection ${state.reconnectionAttempts + 1}/${state.maxReconnectionAttempts}`);
       
+      // Clean up existing connection more gracefully
       if (socketRef.current) {
+        socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
+        socketRef.current = null;
       }
       
       connectWebSocket();
@@ -188,6 +195,11 @@ export function ChatProvider({ children }) {
     healthCheckIntervalRef.current = setInterval(() => {
       if (state.isConnected) {
         checkMCPStatus();
+        
+        // Send periodic ping to keep connection alive
+        if (socketRef.current && socketRef.current.connected) {
+          socketRef.current.emit('ping');
+        }
       }
     }, 30000);
   };
@@ -239,8 +251,11 @@ export function ChatProvider({ children }) {
   const manualReconnect = () => {
     dispatch({ type: 'SET_RECONNECTION_ATTEMPTS', payload: 0 });
     
+    // Clean up existing connection more gracefully
     if (socketRef.current) {
+      socketRef.current.removeAllListeners();
       socketRef.current.disconnect();
+      socketRef.current = null;
     }
     
     connectWebSocket();

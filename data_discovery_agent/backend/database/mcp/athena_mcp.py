@@ -565,7 +565,7 @@ async def list_athena_query_executions(workgroup: str = "primary", max_results: 
         return f"❌ Error listing query executions: {str(e)}"
 
 
-@mcp.tool()
+#@mcp.tool()
 async def get_athena_database_summary(catalog_name: str = "AwsDataCatalog") -> str:
     """
     Get a comprehensive summary of all databases and tables in the Athena catalog.
