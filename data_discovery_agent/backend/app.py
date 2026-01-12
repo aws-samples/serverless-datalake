@@ -256,9 +256,20 @@ def get_mcp_status():
         servers = {}
         for name, connection_info in status.get("connections", {}).items():
             server_config = mcp_config.get(name, {})
+            
+            # Determine the status
+            if connection_info.get("status") == "disabled":
+                server_status = "disabled"
+            elif connection_info.get("status") == "not_initialized":
+                server_status = "not_initialized"
+            elif connection_info.get("connected", False):
+                server_status = "connected"
+            else:
+                server_status = "disconnected"
+            
             servers[name] = {
                 "name": server_config.get("name", name.title()),
-                "status": "connected" if connection_info.get("connected", False) else "disconnected",
+                "status": server_status,
                 "mcp_url": server_config.get("url", ""),
                 "mcp_command": server_config.get("command", ""),
                 "reconnection_attempts": connection_info.get("reconnection_attempts", 0),
@@ -297,7 +308,41 @@ def reconnect_mcp():
                 "timestamp": datetime.now().isoformat()
             }), 500
         
-        # For now, return success since we don't have a specific reconnect method
+        # Reinitialize MCP clients to detect newly started servers
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            success = loop.run_until_complete(graph_integration.reinitialize_mcp_clients())
+        finally:
+            loop.close()
+        
+        if success:
+            return jsonify({
+                "status": "success",
+                "message": f"MCP clients reinitialized successfully",
+                "timestamp": datetime.now().isoformat()
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "error": "Failed to reinitialize MCP clients",
+                "timestamp": datetime.now().isoformat()
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Error reconnecting MCP: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+    except Exception as e:
+        logger.error(f"Error reconnecting MCP: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
         # In a full implementation, you would call graph_integration.reconnect_mcp(mcp_name)
         
         return jsonify({

@@ -216,6 +216,19 @@ class GraphIntegration:
                 "available_agents": []
             }
     
+    async def reinitialize_mcp_clients(self) -> bool:
+        """Reinitialize MCP clients to detect newly started servers."""
+        try:
+            if not self._is_initialized or not self.chatbot:
+                logger.error("Graph system not initialized")
+                return False
+            
+            return await self.chatbot.reinitialize_mcp_clients()
+            
+        except Exception as e:
+            logger.error(f"Error reinitializing MCP clients: {e}")
+            return False
+
     async def get_connection_status(self) -> Dict[str, Any]:
         """Get the connection status of all MCP clients."""
         try:
@@ -225,20 +238,51 @@ class GraphIntegration:
                     "connections": {}
                 }
             
-            # For now, return basic status since health check is simplified
+            # Get all configured servers from the chatbot's sse_urls (mcp_servers.json)
             connections = {}
-            for mcp_name in self.chatbot.mcp_clients.keys():
-                connections[mcp_name] = {
-                    "connected": True,  # Assume connected if in mcp_clients
-                    "reconnection_attempts": 0,
-                    "max_attempts_reached": False
-                }
+            
+            # First, add all configured servers (even if not initialized)
+            for mcp_name, server_config in self.chatbot.sse_urls.items():
+                if server_config.get("disabled", False):
+                    connections[mcp_name] = {
+                        "connected": False,
+                        "status": "disabled",
+                        "reconnection_attempts": 0,
+                        "max_attempts_reached": False
+                    }
+                elif mcp_name.lower() in self.chatbot.mcp_clients:
+                    # Server is initialized, test actual connection
+                    try:
+                        is_connected = await self.chatbot._test_mcp_connection(mcp_name.lower())
+                        connections[mcp_name] = {
+                            "connected": is_connected,
+                            "status": "connected" if is_connected else "disconnected",
+                            "reconnection_attempts": self.chatbot._reconnection_attempts.get(mcp_name.lower(), 0),
+                            "max_attempts_reached": self.chatbot._reconnection_attempts.get(mcp_name.lower(), 0) >= self.chatbot._max_reconnection_attempts
+                        }
+                    except Exception as e:
+                        logger.error(f"Error testing connection for {mcp_name}: {e}")
+                        connections[mcp_name] = {
+                            "connected": False,
+                            "status": "disconnected",
+                            "reconnection_attempts": self.chatbot._reconnection_attempts.get(mcp_name.lower(), 0),
+                            "max_attempts_reached": True,
+                            "error": str(e)
+                        }
+                else:
+                    # Server is configured but not initialized
+                    connections[mcp_name] = {
+                        "connected": False,
+                        "status": "not_initialized",
+                        "reconnection_attempts": self.chatbot._reconnection_attempts.get(mcp_name.lower(), 0),
+                        "max_attempts_reached": False
+                    }
             
             return {
                 "status": "success",
                 "connections": connections,
                 "total_clients": len(connections),
-                "connected_clients": len([c for c in connections.values() if c["connected"]])
+                "connected_clients": len([c for c in connections.values() if c.get("connected", False)])
             }
             
         except Exception as e:

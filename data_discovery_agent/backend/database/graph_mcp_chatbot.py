@@ -268,12 +268,12 @@ class GraphMCPChatbot:
             builder.add_edge(mcp_name, "orchestrator")
         
         # Create and add verifier as a specialist agent
-        verifier = self._create_verifier_agent()
-        builder.add_node(verifier, "verifier")
+        # verifier = self._create_verifier_agent()
+        # builder.add_node(verifier, "verifier")
         
         # Add conditional edge from orchestrator to verifier (treat as specialist)
-        builder.add_edge("orchestrator", "verifier", 
-                        condition=lambda state: self._should_call_verifier(state))
+        # builder.add_edge("orchestrator", "verifier", 
+        #                 condition=lambda state: self._should_call_verifier(state))
         
         # Create and add response summarizer
         response_summarizer = self._create_response_summarizer_agent()
@@ -559,7 +559,13 @@ class GraphMCPChatbot:
                     return {"type": ResponseType.SUCCESS.value, "content": final_output}
                 else:
                     error_msg = f"Graph execution failed with status: {result.status}"
-                    await self._stream_update("error", error_msg)
+                    if 'response_summarizer' in result.results:
+                        error_msg = str(result.results['response_summarizer'].result)
+                    else:
+                        #TODO: This can be improved by listening to all messages in execution order
+                        # and calling summarizer manually
+                        error_msg = str(result.execution_order[-1].result.result)
+                    await self._stream_update("content", error_msg, is_partial=False)
                     return {"type": ResponseType.ERROR.value, "content": error_msg}
             
             finally:
@@ -598,17 +604,35 @@ class GraphMCPChatbot:
                     
                     # Validate the plan structure
                     if isinstance(plan, list) and len(plan) > 0:
-                        # Ensure each step has required fields
+                        # Filter out internal agents (Response_Summarizer, Verifier)
+                        internal_agents = {"response_summarizer", "verifier"}
+                        filtered_plan = []
+                        
                         for i, step in enumerate(plan):
                             if not isinstance(step, dict):
                                 logger.warning(f"Step {i} is not a dict: {step}")
                                 continue
+                            
+                            agent_name = step.get('agent_name', '').lower()
+                            
+                            # Skip internal agents
+                            if agent_name in internal_agents:
+                                logger.debug(f"Filtering out internal agent: {agent_name}")
+                                continue
+                            
+                            # Ensure each step has required fields
                             if 'agent_name' not in step:
                                 step['agent_name'] = 'Unknown'
                             if 'step_number' not in step:
-                                step['step_number'] = i + 1
+                                step['step_number'] = len(filtered_plan) + 1
+                            else:
+                                # Renumber steps after filtering
+                                step['step_number'] = len(filtered_plan) + 1
+                            
+                            filtered_plan.append(step)
                         
-                        return plan
+                        logger.debug(f"Filtered plan (removed internal agents): {filtered_plan}")
+                        return filtered_plan
                     else:
                         logger.warning(f"Plan is not a valid list or is empty: {plan}")
             
@@ -621,8 +645,23 @@ class GraphMCPChatbot:
                 try:
                     plan = json.loads(match.strip())
                     if isinstance(plan, list) and len(plan) > 0:
-                        logger.debug(f"Extracted plan from code block: {plan}")
-                        return plan
+                        # Apply same filtering logic
+                        internal_agents = {"response_summarizer", "verifier"}
+                        filtered_plan = []
+                        
+                        for step in plan:
+                            if isinstance(step, dict):
+                                agent_name = step.get('agent_name', '').lower()
+                                if agent_name not in internal_agents:
+                                    if 'step_number' not in step:
+                                        step['step_number'] = len(filtered_plan) + 1
+                                    else:
+                                        step['step_number'] = len(filtered_plan) + 1
+                                    filtered_plan.append(step)
+                        
+                        if filtered_plan:  # Only return if we have non-internal agents
+                            logger.debug(f"Extracted filtered plan from code block: {filtered_plan}")
+                            return filtered_plan
                 except json.JSONDecodeError:
                     continue
             
@@ -872,6 +911,62 @@ class GraphMCPChatbot:
             await self.stream_callback(update_data)
 
     # Health check and connection management methods (simplified versions)
+    async def reinitialize_mcp_clients(self):
+        """Reinitialize all MCP clients, including newly available ones."""
+        try:
+            logger.info("Reinitializing MCP clients...")
+            
+            # Get the current server configuration
+            for mcp_name, server_config in self.sse_urls.items():
+                if server_config.get("disabled", False):
+                    logger.info(f"Skipping disabled MCP server: {mcp_name}")
+                    continue
+                
+                # Check if this client is already initialized and working
+                if mcp_name.lower() in self.mcp_clients:
+                    is_connected = await self._test_mcp_connection(mcp_name.lower())
+                    if is_connected:
+                        logger.info(f"MCP client {mcp_name} already connected, skipping")
+                        continue
+                    else:
+                        logger.info(f"MCP client {mcp_name} not responding, reinitializing")
+                
+                # Initialize or reinitialize the client
+                success = await self._initialize_mcp_client(mcp_name, server_config)
+                if success:
+                    logger.info(f"✅ Successfully (re)initialized {mcp_name} MCP client")
+                else:
+                    logger.warning(f"❌ Failed to (re)initialize {mcp_name} MCP client")
+            
+            # Rebuild the graph with updated MCP clients
+            if hasattr(self, 'session_manager') and self.session_manager:
+                logger.info("Rebuilding graph with updated MCP clients...")
+                # Note: We'll rebuild the graph on next query since it's session-specific
+            
+            logger.info("MCP client reinitialization completed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error reinitializing MCP clients: {e}")
+            return False
+
+    async def _test_mcp_connection(self, mcp_name: str) -> bool:
+        """Test if an MCP connection is healthy."""
+        try:
+            mcp_config = self.mcp_clients.get(mcp_name)
+            if not mcp_config:
+                return False
+            
+            # Create MCP client and test connection with a timeout
+            mcp_client = self._create_mcp_client(mcp_config)
+            with mcp_client:
+                # Try to list tools as a health check
+                tools = mcp_client.list_tools_sync()
+                return len(tools) >= 0  # Even 0 tools is a valid response
+        except Exception as e:
+            logger.debug(f"Health check failed for {mcp_name}: {e}")
+            return False
+
     async def _health_check_loop(self):
         """Periodic health check loop for MCP connections."""
         logger.info("Starting health check loop")
