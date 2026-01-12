@@ -43,6 +43,12 @@ function chatReducer(state, action) {
             ? { 
                 ...msg, 
                 ...action.payload,
+                // Preserve important data that shouldn't be overwritten
+                plan: action.payload.plan !== undefined ? action.payload.plan : msg.plan,
+                originalQuery: action.payload.originalQuery !== undefined ? action.payload.originalQuery : msg.originalQuery,
+                needsConfirmation: action.payload.needsConfirmation !== undefined ? action.payload.needsConfirmation : msg.needsConfirmation,
+                toolApprovalData: action.payload.toolApprovalData !== undefined ? action.payload.toolApprovalData : msg.toolApprovalData,
+                needsToolApproval: action.payload.needsToolApproval !== undefined ? action.payload.needsToolApproval : msg.needsToolApproval,
                 // Accumulate thinking content
                 thinking: action.payload.thinking !== undefined 
                   ? (msg.thinking || '') + action.payload.thinking
@@ -287,6 +293,17 @@ export function ChatProvider({ children }) {
         // Stream started
         break;
         
+      case 'status':
+        // Status updates from the backend
+        dispatch({
+          type: 'UPDATE_LAST_MESSAGE',
+          payload: {
+            thinking: (data.content || ''),
+            isLoading: true,
+          }
+        });
+        break;
+        
       case 'thinking':
         // Real-time thinking updates from the chatbot - accumulate thinking content
         dispatch({
@@ -429,17 +446,21 @@ export function ChatProvider({ children }) {
           break;
         
       case 'confirmation_needed':
-        dispatch({
-          type: 'UPDATE_LAST_MESSAGE',
-          payload: {
-            needsConfirmation: true,
-            plan: data.plan,
-            originalQuery: data.original_query,
-            isLoading: false,
-          }
-        });
-        // Reset global loading state
-        dispatch({ type: 'SET_LOADING', payload: false });
+        // Only dispatch if plan has items
+        if (data.plan && data.plan.length > 0) {
+          dispatch({
+            type: 'UPDATE_LAST_MESSAGE',
+            payload: {
+              needsConfirmation: true,
+              plan: data.plan || [],
+              originalQuery: data.original_query || '',
+              content: data.content || '', // Include the formatted plan text as content
+              isLoading: false,
+            }
+          });
+          // Reset global loading state
+          dispatch({ type: 'SET_LOADING', payload: false });
+        }
         break;
         
       case 'tool_approval_needed':
@@ -549,8 +570,8 @@ export function ChatProvider({ children }) {
 
   const getAvailableTools = async () => {
     try {
-      const response = await axios.get('/api/tools');
-      dispatch({ type: 'SET_TOOLS', payload: response.data.tools });
+      const response = await axios.get('/api/orchestrator/agents');
+      dispatch({ type: 'SET_TOOLS', payload: response.data.agents });
     } catch (error) {
       console.error('Error fetching tools:', error);
     }
@@ -558,6 +579,8 @@ export function ChatProvider({ children }) {
 
   const confirmPlan = async (plan, original_query, is_single_widget=false) => {
     try {
+      console.log('confirmPlan called with:', { plan, original_query, is_single_widget });
+      
       // Update the last message to show loading state
       dispatch({
         type: 'UPDATE_LAST_MESSAGE',
@@ -570,8 +593,10 @@ export function ChatProvider({ children }) {
       
       // Send confirmation via WebSocket
       if (socketRef.current && socketRef.current.connected) {
+        console.log('Sending confirm_plan via WebSocket');
         socketRef.current.emit('confirm_plan', {"plan": plan, "original_query": original_query, "is_single_widget": is_single_widget});
       } else {
+        console.error('WebSocket not connected');
         throw new Error('WebSocket not connected');
       }
     } catch (error) {

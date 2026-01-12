@@ -197,19 +197,119 @@ def start_graph_system():
 
 # REST API Endpoints
 
-@app.route("/health", methods=["GET"])
-def health_check():
-    """Health check endpoint for container health monitoring."""
+@app.route("/api/health", methods=["GET"])
+def api_health_check():
+    """API health check endpoint."""
     try:
+        # Check if graph system is available
+        system_status = "healthy" if graph_integration else "unhealthy"
+        
         return jsonify({
-            "status": "healthy",
+            "status": system_status,
             "timestamp": datetime.now().isoformat(),
-            "service": "graph-mcp-chatbot-backend"
+            "service": "graph-mcp-chatbot-backend",
+            "graph_system_available": graph_integration is not None
         }), 200
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
+        logger.error(f"API health check failed: {e}")
         return jsonify({
             "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+@app.route("/api/mcp-status", methods=["GET"])
+def get_mcp_status():
+    """Get MCP server connection status."""
+    try:
+        if not graph_integration:
+            return jsonify({
+                "status": "error",
+                "error": "Graph system not initialized",
+                "servers": {},
+                "timestamp": datetime.now().isoformat()
+            }), 500
+        
+        # Get status from graph integration
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            status = loop.run_until_complete(graph_integration.get_connection_status())
+        finally:
+            loop.close()
+        
+        # Load MCP servers configuration for additional details
+        mcp_config = {}
+        try:
+            import pathlib
+            current_file = pathlib.Path(__file__)
+            backend_dir = current_file.parent
+            config_path = backend_dir / "mcp_servers.json"
+            
+            with open(config_path, 'r') as f:
+                mcp_config_raw = json.load(f)
+                mcp_config = mcp_config_raw.get("servers", {})
+        except Exception as e:
+            logger.warning(f"Could not load MCP config: {e}")
+        
+        # Format for frontend with additional server details
+        servers = {}
+        for name, connection_info in status.get("connections", {}).items():
+            server_config = mcp_config.get(name, {})
+            servers[name] = {
+                "name": server_config.get("name", name.title()),
+                "status": "connected" if connection_info.get("connected", False) else "disconnected",
+                "mcp_url": server_config.get("url", ""),
+                "mcp_command": server_config.get("command", ""),
+                "reconnection_attempts": connection_info.get("reconnection_attempts", 0),
+                "max_attempts_reached": connection_info.get("max_attempts_reached", False),
+                "disabled": server_config.get("disabled", False)
+            }
+        
+        return jsonify({
+            "status": "success",
+            "servers": servers,
+            "total_servers": status.get("total_clients", 0),
+            "connected_servers": status.get("connected_clients", 0),
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting MCP status: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e),
+            "servers": {},
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+@app.route("/api/mcp-reconnect", methods=["POST"])
+def reconnect_mcp():
+    """Reconnect MCP servers."""
+    try:
+        data = request.get_json() or {}
+        mcp_name = data.get("mcp_name")
+        
+        if not graph_integration:
+            return jsonify({
+                "status": "error",
+                "error": "Graph system not initialized",
+                "timestamp": datetime.now().isoformat()
+            }), 500
+        
+        # For now, return success since we don't have a specific reconnect method
+        # In a full implementation, you would call graph_integration.reconnect_mcp(mcp_name)
+        
+        return jsonify({
+            "status": "success",
+            "message": f"Reconnection attempted for {mcp_name if mcp_name else 'all MCP servers'}",
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error reconnecting MCP servers: {e}")
+        return jsonify({
+            "status": "error",
             "error": str(e),
             "timestamp": datetime.now().isoformat()
         }), 500

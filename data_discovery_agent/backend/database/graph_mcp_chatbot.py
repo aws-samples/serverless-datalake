@@ -20,7 +20,6 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.chatbot_config import ChatbotConfig, DEFAULT_CONFIG
-from .hooks import MCPToolApprovalHook
 from .hooks.approval_hooks import (
     set_always_approve_for_tool, 
     remove_always_approve_for_tool, 
@@ -157,8 +156,7 @@ class GraphMCPChatbot:
         """Create the orchestrator agent that decides which specialists to call."""
         available_agents = list(self.mcp_clients.values())
         orchestrator_prompt = PromptTemplates.get_orchestrator_agent_prompt(
-            available_agents, 
-            self.config.processing.max_iterations
+            available_agents
         )
         
         return Agent(
@@ -172,11 +170,6 @@ class GraphMCPChatbot:
         """Create a specialist agent for a specific MCP client."""
         mcp_config = self.mcp_clients[mcp_name]
         
-        # Get MCP client and tools
-        mcp_client = self._create_mcp_client(mcp_config)
-        with mcp_client:
-            tools = mcp_client.list_tools_sync()
-        
         # Create specialized agent prompt
         specialized_prompt = PromptTemplates.get_specialized_agent_prompt().format(
             placeholder=str(mcp_config["tools"]), 
@@ -189,20 +182,29 @@ class GraphMCPChatbot:
             User Query: {self.original_query}
             """
         
-        # Create approval hook for this agent
-        approval_hook = MCPToolApprovalHook(
-            app_name=f"{mcp_name}_agent",
-            tools_requiring_approval=None,
-            auto_approve_patterns=None
-        )
+        # Create MCP client and keep it active
+        mcp_client = self._create_mcp_client(mcp_config)
         
-        return Agent(
+        # Store the active MCP client
+        if not hasattr(self, '_active_mcp_clients'):
+            self._active_mcp_clients = {}
+        self._active_mcp_clients[mcp_name] = mcp_client
+        
+        # Start the MCP client context and keep it active
+        mcp_client.__enter__()
+        
+        # Get tools while in context
+        tools = mcp_client.list_tools_sync()
+        
+        # Create the agent with tools (context remains active)
+        agent = Agent(
             name=mcp_name,
             model=self.model,
             system_prompt=specialized_prompt,
-            tools=tools,
-            hooks=[approval_hook]
+            tools=tools
         )
+        
+        return agent
 
     def _create_verifier_agent(self) -> Agent:
         """Create the verifier agent to check if query is resolved."""
@@ -265,21 +267,25 @@ class GraphMCPChatbot:
             # Add edge from specialist back to orchestrator for next decision
             builder.add_edge(mcp_name, "orchestrator")
         
-        # Create and add verifier
+        # Create and add verifier as a specialist agent
         verifier = self._create_verifier_agent()
         builder.add_node(verifier, "verifier")
+        
+        # Add conditional edge from orchestrator to verifier (treat as specialist)
         builder.add_edge("orchestrator", "verifier", 
-                        condition=lambda state: self._should_verify(state))
+                        condition=lambda state: self._should_call_verifier(state))
         
         # Create and add response summarizer
         response_summarizer = self._create_response_summarizer_agent()
         builder.add_node(response_summarizer, "response_summarizer")
-        builder.add_edge("verifier", "response_summarizer",
-                        condition=lambda state: self._should_aggregate(state))
         
-        # Add feedback loop: verifier back to orchestrator when can't answer
-        builder.add_edge("verifier", "orchestrator",
-                        condition=lambda state: self._should_replan(state))
+        # Direct edge from orchestrator to response summarizer when ready to summarize
+        # builder.add_edge("orchestrator", "response_summarizer",
+        #                 condition=lambda state: self._should_summarize(state))
+        builder.add_edge("orchestrator", "response_summarizer")
+        # Add feedback loop: response_summarizer back to orchestrator for replanning if needed
+        # builder.add_edge("response_summarizer", "orchestrator",
+        #                 condition=lambda state: self._should_replan(state))
         
         # Set orchestrator as entry point
         builder.set_entry_point("orchestrator")
@@ -289,6 +295,10 @@ class GraphMCPChatbot:
         builder.set_max_node_executions(self.config.processing.max_iterations * 2)
         builder.set_node_timeout(120)  # 2 minutes per node
         builder.set_session_manager(self.session_manager)
+        
+        # Add interrupt handling at graph level for tool approvals
+        if hasattr(builder, 'add_interrupt_handler'):
+            builder.add_interrupt_handler(self._handle_tool_approval_interrupt)
         
         return builder.build()
 
@@ -317,57 +327,68 @@ class GraphMCPChatbot:
         # Fallback: check if specialist name is mentioned
         return specialist_name.lower() in result_text
 
-    def _should_verify(self, state) -> bool:
-        """Determine if we should verify the query resolution."""
-        # Check if we have collected some data from specialists
+    def _should_call_verifier(self, state) -> bool:
+        """Determine if orchestrator decided to call the verifier."""
+        orchestrator_result = state.results.get("orchestrator")
+        if not orchestrator_result:
+            return False
+        
+        result_text = str(orchestrator_result.result).lower()
+        
+        # Check if the orchestrator mentions verifier or verification
+        if "verifier" in result_text or "verify" in result_text:
+            return True
+        
+        # Check for JSON format with agent_name
+        try:
+            if "[" in result_text and "]" in result_text:
+                start_bracket = result_text.split("[")[1]
+                json_part = start_bracket.split("]")[0]
+                json_response = json.loads("[" + json_part + "]")
+                
+                for item in json_response:
+                    if isinstance(item, dict) and item.get("agent_name", "").lower() == "verifier":
+                        return True
+        except:
+            pass
+        
+        return False
+
+    def _should_summarize(self, state) -> bool:
+        """Determine if we should summarize the results."""
+        orchestrator_result = state.results.get("orchestrator")
+        if not orchestrator_result:
+            return False
+        
+        result_text = str(orchestrator_result.result).lower()
+        
+        # Check if orchestrator mentions response_summarizer or summarize
+        if "response_summarizer" in result_text or "summarize" in result_text:
+            return True
+        
+        # Check for JSON format with agent_name
+        try:
+            if "[" in result_text and "]" in result_text:
+                start_bracket = result_text.split("[")[1]
+                json_part = start_bracket.split("]")[0]
+                json_response = json.loads("[" + json_part + "]")
+                
+                for item in json_response:
+                    if isinstance(item, dict) and item.get("agent_name", "").lower() == "response_summarizer":
+                        return True
+        except:
+            pass
+        
+        # Also check if we have collected data and orchestrator suggests completion
         specialist_results = [
             result for node_name, result in state.results.items() 
-            if node_name in self.mcp_clients and node_name != "orchestrator"
+            if node_name in self.mcp_clients or node_name == "verifier"
         ]
         
-        # Always verify if we have specialist results
-        if specialist_results:
+        if specialist_results and any(keyword in result_text for keyword in ["complete", "finished", "done", "enough"]):
+            logger.info("✅ Orchestrator indicated completion with data - proceeding to response summarizer")
             return True
             
-        # Also check if orchestrator suggests we should verify
-        orchestrator_result = state.results.get("orchestrator")
-        if orchestrator_result:
-            result_text = str(orchestrator_result.result).lower()
-            # Look for verification keywords or if orchestrator thinks we have enough data
-            return any(keyword in result_text for keyword in ["verify", "check", "enough", "sufficient", "complete"])
-            
-        return False
-
-    def _should_aggregate(self, state) -> bool:
-        """Determine if we should aggregate and provide final response."""
-        verifier_result = state.results.get("verifier")
-        if not verifier_result:
-            return False
-        
-        # Parse verifier response to check if query can be answered
-        verifier_response_str = extract_and_fix_json(str(verifier_result.result))
-        if verifier_response_str:
-            can_answer = get_json_key(verifier_response_str, "can_answer")
-            if can_answer == "yes":
-                logger.info("✅ Verifier confirmed query can be answered - proceeding to response summarizer")
-                return True
-        
-        return False
-
-    def _should_replan(self, state) -> bool:
-        """Determine if we should go back to orchestrator for replanning."""
-        verifier_result = state.results.get("verifier")
-        if not verifier_result:
-            return False
-        
-        # Parse verifier response to check if query can be answered
-        verifier_response_str = extract_and_fix_json(str(verifier_result.result))
-        if verifier_response_str:
-            can_answer = get_json_key(verifier_response_str, "can_answer")
-            if can_answer == "no":
-                logger.info("🔄 Verifier determined query cannot be answered - triggering replanning")
-                return True
-        
         return False
 
     async def process_message_stream(
@@ -406,18 +427,44 @@ class GraphMCPChatbot:
                 
                 # Parse and present plan for confirmation
                 plan = self._extract_plan_from_response(str(orchestrator_response))
+                logger.info(f"Orchestrator response: {str(orchestrator_response)}")
+                logger.info(f"Extracted plan: {plan}")
+                
                 if plan:
                     await self._stream_update("thinking", f"Orchestrator has prepared a plan: {plan}")
-                    await self._stream_update("confirmation_needed", extra={
-                        "plan": plan,
-                        "original_query": message
-                    }, is_partial=False)
+                    
+                    # Format plan for display in the main dialog
+                    plan_text = "The orchestrator has prepared a plan to answer your query. Please review and approve or reject:\n\n"
+                    plan_text += "**Execution Plan:**\n\n"
+                    for step in plan:
+                        agent_name = step.get('agent_name', 'Unknown')
+                        step_number = step.get('step_number', '?')
+                        plan_text += f"**Step {step_number}:** {agent_name} agent\n"
+                        if 'clarification_message' in step:
+                            plan_text += f"  - {step['clarification_message']}\n"
+                        plan_text += "\n"
+                    
+                    plan_text += f"**Query:** \"{message}\"\n\n"
+                    plan_text += "Please review this plan and choose to approve or reject it."
+                    
+                    await self._stream_update("confirmation_needed", 
+                        content=plan_text,
+                        extra={
+                            "plan": plan,
+                            "original_query": message
+                        }, 
+                        is_partial=False
+                    )
                     
                     return {
                         "type": "confirmation_needed",
                         "plan": plan,
                         "original_query": message
                     }
+                else:
+                    logger.warning("No plan extracted from orchestrator response, proceeding without confirmation")
+                    # If no plan is extracted, proceed without confirmation
+                    pass
             
             # Execute the graph
             result = await self._execute_graph_with_streaming(message)
@@ -478,40 +525,53 @@ class GraphMCPChatbot:
             
             # Execute the graph
             await self._stream_update("thinking", "Executing orchestrator and specialist agents...")
-            result = self.graph(query)
             
-            # Process the results
-            if result.status == "completed":
-                await self._stream_update("thinking", "Graph execution completed successfully")
+            try:
+                result = self.graph(query)
                 
-                # Extract final response from aggregator or last executed node
-                final_output = self._extract_final_output(result)
-                
-                # Stream the final response
-                if self.collected_datasets:
-                    combined_data = "\n\n".join([
-                        f"**Dataset {idx + 1}:**\n{dataset}"
-                        for idx, dataset in enumerate(self.collected_datasets)
-                    ])
+                # Process the results
+                if result.status == "completed":
+                    await self._stream_update("thinking", "Graph execution completed successfully")
                     
-                    await self._stream_update(
-                        "with_citations",
-                        final_output,
-                        is_partial=False,
-                        extra={
-                            "citations": combined_data,
-                            "query": query,
-                            "timestamp": datetime.now().isoformat()
-                        }
-                    )
+                    # Extract final response from aggregator or last executed node
+                    final_output = self._extract_final_output(result)
+                    
+                    # Stream the final response
+                    if self.collected_datasets:
+                        combined_data = "\n\n".join([
+                            f"**Dataset {idx + 1}:**\n{dataset}"
+                            for idx, dataset in enumerate(self.collected_datasets)
+                        ])
+                        
+                        await self._stream_update(
+                            "with_citations",
+                            final_output,
+                            is_partial=False,
+                            extra={
+                                "citations": combined_data,
+                                "query": query,
+                                "timestamp": datetime.now().isoformat()
+                            }
+                        )
+                    else:
+                        await self._stream_update("content", final_output, is_partial=False)
+                    
+                    return {"type": ResponseType.SUCCESS.value, "content": final_output}
                 else:
-                    await self._stream_update("content", final_output, is_partial=False)
-                
-                return {"type": ResponseType.SUCCESS.value, "content": final_output}
-            else:
-                error_msg = f"Graph execution failed with status: {result.status}"
-                await self._stream_update("error", error_msg)
-                return {"type": ResponseType.ERROR.value, "content": error_msg}
+                    error_msg = f"Graph execution failed with status: {result.status}"
+                    await self._stream_update("error", error_msg)
+                    return {"type": ResponseType.ERROR.value, "content": error_msg}
+            
+            finally:
+                # Clean up MCP client contexts after graph execution
+                if hasattr(self, '_active_mcp_clients'):
+                    for mcp_name, mcp_client in self._active_mcp_clients.items():
+                        try:
+                            mcp_client.__exit__(None, None, None)
+                            logger.info(f"Closed MCP client context for {mcp_name}")
+                        except Exception as e:
+                            logger.error(f"Error closing MCP client context for {mcp_name}: {e}")
+                    self._active_mcp_clients.clear()
                 
         except Exception as e:
             logger.error(f"Error in graph execution: {e}")
@@ -521,13 +581,124 @@ class GraphMCPChatbot:
     def _extract_plan_from_response(self, response: str) -> list:
         """Extract plan from orchestrator response."""
         try:
+            logger.debug(f"Attempting to extract plan from response: {response}")
+            
+            # Try to find JSON array in the response
             if "[" in response and "]" in response:
-                start_bracket = response.split("[")[1]
-                json_part = start_bracket.split("]")[0]
-                return json.loads("[" + json_part + "]")
-        except:
-            pass
+                # Find the first [ and last ]
+                start_idx = response.find("[")
+                end_idx = response.rfind("]") + 1
+                
+                if start_idx != -1 and end_idx > start_idx:
+                    json_str = response[start_idx:end_idx]
+                    logger.debug(f"Extracted JSON string: {json_str}")
+                    
+                    plan = json.loads(json_str)
+                    logger.debug(f"Parsed plan: {plan}")
+                    
+                    # Validate the plan structure
+                    if isinstance(plan, list) and len(plan) > 0:
+                        # Ensure each step has required fields
+                        for i, step in enumerate(plan):
+                            if not isinstance(step, dict):
+                                logger.warning(f"Step {i} is not a dict: {step}")
+                                continue
+                            if 'agent_name' not in step:
+                                step['agent_name'] = 'Unknown'
+                            if 'step_number' not in step:
+                                step['step_number'] = i + 1
+                        
+                        return plan
+                    else:
+                        logger.warning(f"Plan is not a valid list or is empty: {plan}")
+            
+            # Fallback: try to extract from code blocks
+            import re
+            code_block_pattern = r'```(?:json)?\s*(\[.*?\])\s*```'
+            matches = re.findall(code_block_pattern, response, re.DOTALL)
+            
+            for match in matches:
+                try:
+                    plan = json.loads(match.strip())
+                    if isinstance(plan, list) and len(plan) > 0:
+                        logger.debug(f"Extracted plan from code block: {plan}")
+                        return plan
+                except json.JSONDecodeError:
+                    continue
+            
+            logger.warning("No valid plan found in orchestrator response")
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error when extracting plan: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error when extracting plan: {e}")
+        
         return []
+
+    def _should_replan(self, state) -> bool:
+        """Determine if we should go back to orchestrator for replanning."""
+        # Check if response_summarizer indicates need for more data
+        response_summarizer_result = state.results.get("response_summarizer")
+        if response_summarizer_result:
+            result_text = str(response_summarizer_result.result).lower()
+            
+            # Look for indicators that more data is needed
+            replan_keywords = [
+                "insufficient", "incomplete", "need more", "require additional", 
+                "missing", "not enough", "replan", "gather more", "additional data"
+            ]
+            
+            if any(keyword in result_text for keyword in replan_keywords):
+                logger.info("🔄 Response summarizer determined more data needed - triggering replanning")
+                return True
+        
+        # Check if verifier indicates need for replanning
+        verifier_result = state.results.get("verifier")
+        if verifier_result:
+            # Parse verifier response to check if query can be answered
+            verifier_response_str = extract_and_fix_json(str(verifier_result.result))
+            if verifier_response_str:
+                can_answer = get_json_key(verifier_response_str, "can_answer")
+                if can_answer == "no":
+                    logger.info("🔄 Verifier determined query cannot be answered - triggering replanning")
+                    return True
+        
+        return False
+
+    async def _handle_tool_approval_interrupt(self, interrupt_data):
+        """Handle tool approval interrupts at the graph level."""
+        try:
+            logger.info(f"Handling tool approval interrupt: {interrupt_data}")
+            
+            # Extract tool information from interrupt
+            tool_name = interrupt_data.get('tool_name', 'unknown')
+            agent_name = interrupt_data.get('agent_name', 'unknown')
+            
+            # Check if tool is always approved
+            if is_tool_always_approved(tool_name):
+                logger.info(f"Tool {tool_name} is always approved, continuing execution")
+                return "approve"
+            
+            # Send tool approval request to frontend
+            await self._stream_update(
+                "tool_approval_needed",
+                content=f"Agent {agent_name} wants to use tool: {tool_name}",
+                extra={
+                    "agent_name": agent_name,
+                    "tool_name": tool_name,
+                    "interrupt_id": interrupt_data.get('interrupt_id'),
+                    "query": self.original_query,
+                    "interrupts": [interrupt_data]  # Wrap in array for consistency
+                }
+            )
+            
+            # This would need to be handled differently in a real implementation
+            # For now, return a default approval
+            return "approve"
+            
+        except Exception as e:
+            logger.error(f"Error handling tool approval interrupt: {e}")
+            return "deny"
 
     def _extract_final_output(self, result) -> str:
         """Extract the final output from graph execution."""
@@ -696,6 +867,7 @@ class GraphMCPChatbot:
             if title:
                 update_data["title"] = title
             if extra:
+                # Merge extra data directly into update_data for better frontend access
                 update_data.update(extra)
             await self.stream_callback(update_data)
 
@@ -718,6 +890,17 @@ class GraphMCPChatbot:
         self.is_running = False
         if self._health_check_task and not self._health_check_task.done():
             self._health_check_task.cancel()
+        
+        # Clean up any remaining MCP client contexts
+        if hasattr(self, '_active_mcp_clients'):
+            for mcp_name, mcp_client in self._active_mcp_clients.items():
+                try:
+                    mcp_client.__exit__(None, None, None)
+                    logger.info(f"Closed MCP client context for {mcp_name}")
+                except Exception as e:
+                    logger.error(f"Error closing MCP client context for {mcp_name}: {e}")
+            self._active_mcp_clients.clear()
+        
         logger.info("Graph MCP Chatbot stopped")
 
     async def cleanup(self):

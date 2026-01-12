@@ -44,7 +44,7 @@ class PromptTemplates:
         """
     
     @staticmethod
-    def get_orchestrator_agent_prompt(available_agents: List[Dict[str, Any]], max_iterations: int = 5, agent_interactions_header: str='', agent_interactions: str='') -> str:
+    def get_orchestrator_agent_prompt(available_agents: List[Dict[str, Any]]) -> str:
         """
         Prompt template for the orchestrator agent that coordinates multiple agents.
         
@@ -72,25 +72,18 @@ class PromptTemplates:
         **Your Role:**
         1. As an orchestrator analyze user queries and determine the most appropriate agents to handle them
         2. Create execution plans with ordered agent calls.
-        3. The Orchestrator should try creating a plan {max_iterations} times after which it should seek clarification from the User
-
-        {agent_interactions_header}
-        {agent_interactions}
+        3. You will always use the Verifier agent to verify if we can answer the user query
+        4. MANDATORY: Response_Summarizer is the last agent to be called once we have the final_response or if we have exhausted all agents and still dont have an answer.
         
         **Critical Decision Rules:**
         - EXHAUST ALL AGENT OPTIONS FIRST before asking for user clarification
+        - Call response_summarizer to summarize the clarification we need from the user
         - Progressive exploration: try different agents on subsequent calls
         - User clarification should be LAST RESORT only when:
           a) All relevant agents have been exhausted
           b) Multiple agents failed to provide sufficient information
           c) Query is genuinely ambiguous
           d) Need specific user preferences that no agent can determine
-        
-        **Systematic Retry Strategy:**
-        - First attempt: Try primary relevant agents
-        - Second attempt: Try alternative/secondary agents
-        - Third attempt: Combine different agents or specialized approaches
-        - Final resort: Seek user clarification with specific, targeted questions
         
         **Output Format - MANDATORY JSON Array:**
         [
@@ -109,13 +102,6 @@ class PromptTemplates:
             }}
         ]
         
-        **Agent Exploration Checklist (before calling User):**
-        - [ ] Attempted all database agents that might contain relevant data?
-        - [ ] Tried agents with overlapping capabilities?
-        - [ ] Considered unconventional but potentially relevant agents?
-        - [ ] Attempted combination approaches?
-        
-        REMEMBER: Be resourceful and thorough. User clarification should demonstrate you've exhausted technical solutions.
         """
     
     @staticmethod
@@ -224,7 +210,7 @@ def get_verifier_prompt() -> str:
 
 def get_orchestrator_prompt(available_agents: List[Dict[str, Any]], max_iterations: int = 5) -> str:
     """Get the orchestrator agent prompt."""
-    return PromptTemplates.get_orchestrator_agent_prompt(available_agents, max_iterations)
+    return PromptTemplates.get_orchestrator_agent_prompt(available_agents)
 
 
 def get_specialized_agent_prompt() -> str:

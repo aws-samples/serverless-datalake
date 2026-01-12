@@ -370,14 +370,20 @@ function ChatMessage({ message }) {
   const isLoading = message.isLoading;
   
   const handleConfirmPlan = () => {
+    console.log('handleConfirmPlan called', { plan: message.plan, originalQuery: message.originalQuery });
     if (message.plan && message.originalQuery) {
       confirmPlan(message.plan, message.originalQuery);
+    } else {
+      console.error('Missing plan or originalQuery', { plan: message.plan, originalQuery: message.originalQuery });
     }
   };
   
   const handleRejectPlan = () => {
+    console.log('handleRejectPlan called', { plan: message.plan, originalQuery: message.originalQuery });
     if (message.plan && message.originalQuery) {
       rejectPlan(message.plan, message.originalQuery);
+    } else {
+      console.error('Missing plan or originalQuery', { plan: message.plan, originalQuery: message.originalQuery });
     }
   };
 
@@ -527,23 +533,23 @@ function ChatMessage({ message }) {
         )}
         
         {/* Markdown content */}
-        {(!message.needsConfirmation && !message.needsToolApproval) || message.content ? (
+        {message.content ? (
           <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-ul:text-gray-700 prose-ol:text-gray-700 prose-li:text-gray-700 prose-strong:text-gray-900 prose-em:text-gray-700">
-            {message.content && typeof message.content === 'string' ? (
+            {typeof message.content === 'string' ? (
               <SafeReactMarkdown>
                 {sanitizeMarkdown(message.content)}
               </SafeReactMarkdown>
-            ) : message.content ? (
+            ) : (
               <div className="text-gray-600 whitespace-pre-wrap">
                 {String(message.content)}
               </div>
-            ) : (!message.needsConfirmation && !message.needsToolApproval) && (
-              <div className="text-gray-400 italic">
-                No content available
-              </div>
             )}
           </div>
-        ) : null}
+        ) : (!message.needsConfirmation && !message.needsToolApproval) && (
+          <div className="text-gray-400 italic">
+            No content available
+          </div>
+        )}
 
         {/* Data table if present */}
         {message.data && (
