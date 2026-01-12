@@ -668,17 +668,43 @@ export function ChatProvider({ children }) {
     await confirmToolApproval(approvalData, 'always');
   };
 
-  const rejectPlan = async (plan, original_query) => {
-    // Update the last message to show rejection
+  const rejectPlan = async (plan, original_query, feedback = '') => {
+    // Update the last message to show rejection and ask for new approach
     dispatch({
       type: 'UPDATE_LAST_MESSAGE',
       payload: {
         needsConfirmation: false,
-        content: 'Plan rejected. Please try a different query or approach.',
-        isLoading: false,
+        content: 'Plan rejected. The orchestrator will create a new plan based on your feedback.',
+        isLoading: true,
+        thinking: 'Processing plan rejection and user feedback...'
       }
     });
-    dispatch({ type: 'SET_LOADING', payload: false });
+    dispatch({ type: 'SET_LOADING', payload: true });
+
+    try {
+      // Send rejection feedback to backend via WebSocket
+      if (socketRef.current && socketRef.current.connected) {
+        socketRef.current.emit('reject_plan', {
+          "plan": plan,
+          "original_query": original_query,
+          "rejection_reason": feedback || "User requested a different approach"
+        });
+      } else {
+        throw new Error('WebSocket not connected');
+      }
+    } catch (error) {
+      console.error('Error rejecting plan:', error);
+      dispatch({
+        type: 'UPDATE_LAST_MESSAGE',
+        payload: {
+          content: 'Sorry, I encountered an error processing your rejection. Please try again.',
+          isLoading: false,
+          error: true,
+        }
+      });
+      dispatch({ type: 'SET_LOADING', payload: false });
+      toast.error('Failed to reject plan');
+    }
   };
 
   const value = {

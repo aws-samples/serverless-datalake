@@ -717,6 +717,97 @@ def handle_confirm_plan(data):
             'timestamp': datetime.now().isoformat()
         })
 
+@socketio.on("reject_plan")
+def handle_reject_plan(data):
+    """Handle plan rejection from client."""
+    try:
+        client_sid = request.sid
+        
+        if not graph_integration:
+            logger.error(f"Graph system not available for connection {client_sid}")
+            emit('chat_response', {
+                'type': 'error',
+                'content': "Chat system is not available. Please try reconnecting.",
+                'timestamp': datetime.now().isoformat()
+            })
+            return
+        
+        # Define streaming callback for WebSocket
+        async def stream_callback(update_data):
+            """Callback function to stream responses."""
+            try:
+                socketio.emit(
+                    "chat_response",
+                    {**update_data, "timestamp": datetime.now().isoformat()},
+                    room=client_sid,
+                )
+            except Exception as e:
+                logger.error(f"Error in stream callback: {e}")
+        
+        def handle_rejection():
+            try:
+                # Create a new event loop for the thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # Process plan rejection - restart with feedback
+                original_query = data.get('original_query', '')
+                rejection_reason = data.get('rejection_reason', 'User rejected the plan')
+                
+                # Create a contextual message that preserves the original query and adds feedback
+                feedback_message = f"""The user has provided feedback on the previous plan:
+
+ORIGINAL QUERY: {original_query}
+
+USER FEEDBACK: {rejection_reason}
+
+Please create a new plan that addresses this feedback while still answering the original query. Consider the user's specific suggestions and preferences."""
+                
+                from database.graph_integration import process_graph_query
+                loop.run_until_complete(
+                    process_graph_query(
+                        query=feedback_message,
+                        user_id=client_sid,
+                        session_id=client_sid,
+                        stream_callback=stream_callback
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Error processing plan rejection for connection {client_sid}: {e}")
+                socketio.emit(
+                    'chat_response',
+                    {
+                        'type': 'error',
+                        'content': f"An error occurred while processing the rejection: {str(e)}",
+                        'timestamp': datetime.now().isoformat()
+                    },
+                    room=client_sid
+                )
+            finally:
+                loop.close()
+        
+        # Start processing in background thread
+        process_thread = threading.Thread(target=handle_rejection, daemon=True)
+        process_thread.start()
+        
+        # Send immediate acknowledgment
+        emit(
+            "chat_response",
+            {
+                "type": "status",
+                "content": "Processing plan rejection and creating new approach...",
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+        
+    except Exception as e:
+        logger.error(f"Error processing plan rejection: {e}")
+        emit('chat_response', {
+            'type': 'error',
+            'content': f"An error occurred while processing the rejection: {str(e)}",
+            'timestamp': datetime.now().isoformat()
+        })
+
 @socketio.on("tool_approval_response")
 def handle_tool_approval_response(data):
     """Handle tool approval response from client."""

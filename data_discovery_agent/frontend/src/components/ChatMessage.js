@@ -378,10 +378,10 @@ function ChatMessage({ message }) {
     }
   };
   
-  const handleRejectPlan = () => {
-    console.log('handleRejectPlan called', { plan: message.plan, originalQuery: message.originalQuery });
+  const handleRejectPlan = (feedback = '') => {
+    console.log('handleRejectPlan called', { plan: message.plan, originalQuery: message.originalQuery, feedback });
     if (message.plan && message.originalQuery) {
-      rejectPlan(message.plan, message.originalQuery);
+      rejectPlan(message.plan, message.originalQuery, feedback);
     } else {
       console.error('Missing plan or originalQuery', { plan: message.plan, originalQuery: message.originalQuery });
     }

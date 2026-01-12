@@ -6,6 +6,7 @@ from strands.tools.mcp import MCPClient
 from strands.models import BedrockModel
 from strands.multiagent import GraphBuilder
 from strands.session.file_session_manager import FileSessionManager
+from strands.agent.conversation_manager import SlidingWindowConversationManager
 import asyncio
 import json
 import logging
@@ -105,6 +106,10 @@ class GraphMCPChatbot:
         self.original_query = None
         self.current_user_id = None
         self.current_session_id = None
+        self.conversation_manager = SlidingWindowConversationManager(
+    window_size=20,  # Maximum number of messages to keep
+    should_truncate_results=True, # Enable truncating the tool result when a message is too large for the model's context window
+)
 
     async def start(self):
         """Start the chatbot and initialize all components."""
@@ -163,6 +168,7 @@ class GraphMCPChatbot:
             name="orchestrator",
             model=self.model,
             system_prompt=orchestrator_prompt,
+            conversation_manager=self.conversation_manager,
             tools=[self.get_all_available_tools]
         )
 
@@ -510,31 +516,59 @@ class GraphMCPChatbot:
         try:
             await self._stream_update("thinking", "Starting graph execution...")
             
-            # Create a custom callback for node execution
-            async def node_callback(node_name: str, result: Any):
-                """Callback for when a node completes execution."""
-                await self._stream_update("thinking", f"Agent {node_name} completed execution")
-                
-                # If it's a specialist agent, collect the data
-                if node_name in self.mcp_clients:
-                    json_resp = extract_and_fix_json(str(result))
-                    if json_resp:
-                        self.collected_datasets.append(str(json_resp))
-                        self.total_datasets += 1
-                        await self._stream_update("thinking", f"Collected data from {node_name}")
-            
-            # Execute the graph
-            await self._stream_update("thinking", "Executing orchestrator and specialist agents...")
-            
             try:
-                result = self.graph(query)
+                # Execute the graph with streaming
+                await self._stream_update("thinking", "🚀 Initializing graph execution...")
                 
-                # Process the results
-                if result.status == "completed":
-                    await self._stream_update("thinking", "Graph execution completed successfully")
+                final_result = None
+                async for event in self.graph.stream_async(query):
+                    # Track node execution start
+                    if event.get("type") == "multiagent_node_start":
+                        node_id = event.get('node_id', 'unknown')
+                        await self._stream_update("thinking", f"🔄 Starting {node_id} agent...")
+                    
+                    # Monitor agent events within nodes (streaming content from agents)
+                    # elif event.get("type") == "multiagent_node_stream":
+                    #     inner_event = event.get("event", {})
+                    #     node_id = event.get('node_id', 'unknown')
+                        
+                        # Stream agent thinking/content
+                        # if "data" in inner_event:
+                        #     content = str(inner_event["data"])
+                        #     await self._stream_update("thinking", f"💭 {node_id}: {content}")
+                        
+                    
+                    # Track node completion
+                    elif event.get("type") == "multiagent_node_stop":
+                        node_id = event.get('node_id', 'unknown')
+                        node_result = event.get("node_result")
+                        
+                        if node_result and hasattr(node_result, 'execution_time'):
+                            execution_time = node_result.execution_time
+                            await self._stream_update("thinking", f"✅ {node_id} completed in {execution_time}ms")
+                        else:
+                            await self._stream_update("thinking", f"✅ {node_id} completed")
+                        
+                        # If it's a specialist agent, collect the data
+                        if node_id in self.mcp_clients and node_result:
+                            json_resp = extract_and_fix_json(str(node_result.result))
+                            if json_resp:
+                                self.collected_datasets.append(str(json_resp))
+                                self.total_datasets += 1
+                                await self._stream_update("thinking", f"📊 Collected data from {node_id}")
+                    
+                    # Get final result
+                    elif event.get("type") == "multiagent_result":
+                        final_result = event.get("result")
+                        status = final_result.status if final_result else "unknown"
+                        await self._stream_update("thinking", f"🏁 Graph execution completed with status: {status}")
+                
+                # Process the final results
+                if final_result and final_result.status == "completed":
+                    await self._stream_update("thinking", "🎯 Processing final results...")
                     
                     # Extract final response from aggregator or last executed node
-                    final_output = self._extract_final_output(result)
+                    final_output = self._extract_final_output(final_result)
                     
                     # Stream the final response
                     if self.collected_datasets:
@@ -558,13 +592,13 @@ class GraphMCPChatbot:
                     
                     return {"type": ResponseType.SUCCESS.value, "content": final_output}
                 else:
-                    error_msg = f"Graph execution failed with status: {result.status}"
-                    if 'response_summarizer' in result.results:
-                        error_msg = str(result.results['response_summarizer'].result)
-                    else:
+                    error_msg = f"Graph execution failed with status: {final_result.status if final_result else 'no result'}"
+                    if final_result and 'response_summarizer' in final_result.results:
+                        error_msg = str(final_result.results['response_summarizer'].result)
+                    elif final_result and final_result.execution_order:
                         #TODO: This can be improved by listening to all messages in execution order
                         # and calling summarizer manually
-                        error_msg = str(result.execution_order[-1].result.result)
+                        error_msg = str(final_result.execution_order[-1].result.result)
                     await self._stream_update("content", error_msg, is_partial=False)
                     return {"type": ResponseType.ERROR.value, "content": error_msg}
             
