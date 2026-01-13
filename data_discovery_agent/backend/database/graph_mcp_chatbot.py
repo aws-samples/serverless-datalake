@@ -27,6 +27,7 @@ from .hooks.approval_hooks import (
     is_tool_always_approved,
     get_always_approved_tools
 )
+from .hooks.graph_tool_hook import GraphToolHook
 from utils.response_summarizer import ResponseSummarizer, quick_summarize
 from utils.prompts import PromptTemplates
 from utils.models import ResponseType, AgentResponse
@@ -299,9 +300,10 @@ class GraphMCPChatbot:
         
         # Configure execution limits
         builder.set_execution_timeout(600)  # 10 minutes
-        builder.set_max_node_executions(self.config.processing.max_iterations * 2)
+        builder.set_max_node_executions(self.config.processing.max_iterations * 5)
         builder.set_node_timeout(120)  # 2 minutes per node
         builder.set_session_manager(self.session_manager)
+        builder.set_hook_providers([GraphToolHook()])
         
         # Add interrupt handling at graph level for tool approvals
         if hasattr(builder, 'add_interrupt_handler'):
@@ -317,6 +319,10 @@ class GraphMCPChatbot:
         
         result_text = str(orchestrator_result.result).lower()
         
+        # Get the display name for this specialist (the name field from config)
+        specialist_config = self.mcp_clients.get(specialist_name, {})
+        display_name = specialist_config.get("name", specialist_name).lower()
+        
         # Check if the specialist name appears in the orchestrator's decision
         # Look for JSON format with agent_name
         try:
@@ -326,13 +332,16 @@ class GraphMCPChatbot:
                 json_response = json.loads("[" + json_part + "]")
                 
                 for item in json_response:
-                    if isinstance(item, dict) and item.get("agent_name", "").lower() == specialist_name.lower():
-                        return True
+                    if isinstance(item, dict):
+                        agent_name = item.get("agent_name", "").lower()
+                        # Check both the MCP key name and the display name
+                        if agent_name == specialist_name.lower() or agent_name == display_name:
+                            return True
         except:
             pass
         
-        # Fallback: check if specialist name is mentioned
-        return specialist_name.lower() in result_text
+        # Fallback: check if specialist name or display name is mentioned
+        return specialist_name.lower() in result_text or display_name in result_text
 
     def _should_call_verifier(self, state) -> bool:
         """Determine if orchestrator decided to call the verifier."""

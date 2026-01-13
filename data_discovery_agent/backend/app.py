@@ -186,8 +186,8 @@ def start_graph_system():
     thread = threading.Thread(target=run_initialization, daemon=True)
     thread.start()
     
-    # Give the thread a moment to initialize
-    time.sleep(2)
+    # Give the thread a moment to initialize vizro takes time
+    time.sleep(15)
     
     # Check if graph system was initialized successfully
     if graph_integration is None:

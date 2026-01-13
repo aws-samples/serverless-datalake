@@ -61,7 +61,7 @@ function PlanConfirmationDialog({ plan, onConfirm, onReject }) {
                 <span className="text-xs font-medium">{step.step_number}</span>
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-900">{step.agent_name}</p>
+                <p className="text-sm font-medium text-gray-900">{step.agent_name.charAt(0).toUpperCase() + step.agent_name.slice(1)} Agent</p>
                 {step.clarification_message && (
                   <p className="text-sm text-gray-600 italic">"{step.clarification_message}"</p>
                 )}

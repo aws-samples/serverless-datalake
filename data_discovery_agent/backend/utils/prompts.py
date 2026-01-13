@@ -72,8 +72,8 @@ class PromptTemplates:
         **Your Role:**
         1. As an orchestrator analyze user queries and determine the most appropriate agents to handle them
         2. Create execution plans with ordered agent calls.
-        3. You will always use the Verifier agent to verify if we can answer the user query
-        4. MANDATORY: Response_Summarizer is the last agent to be called once we have the final_response or if we have exhausted all agents and still dont have an answer.
+        3. MANDATORY: Response_Summarizer is the last agent to be called once we have the final_response or if we have exhausted all agents and still dont have an answer.
+        4. DashboardBuilder (Vizro MCP) Agent should be used to create interactive dashboards
         
         **Critical Decision Rules:**
         - EXHAUST ALL AGENT OPTIONS FIRST before asking for user clarification
