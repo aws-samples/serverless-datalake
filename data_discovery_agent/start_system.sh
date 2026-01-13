@@ -10,6 +10,14 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "🚀 MCP Dashboard System Startup Script"
     echo "======================================"
     echo ""
+    echo "This script will:"
+    echo "  1. Install Python dependencies (requirements.txt)"
+    echo "  2. Install Node.js dependencies (frontend/package.json)"
+    echo "  3. Auto-detect and configure uvx path for vizro-mcp server"
+    echo "  4. Start MCP servers (Athena & S3 Vectors)"
+    echo "  5. Start Flask backend"
+    echo "  6. Start React frontend"
+    echo ""
     echo "Usage:"
     echo "  ./start_system.sh              - Start all services with logs saved to files"
     echo "  ./start_system.sh --show-logs  - Start all services and show logs in real-time"
@@ -115,6 +123,12 @@ if ! command -v python &> /dev/null; then
     exit 1
 fi
 
+# Check if pip is available
+if ! command -v pip &> /dev/null; then
+    echo -e "${RED}❌ pip is not installed${NC}"
+    exit 1
+fi
+
 # Check if Node.js is available
 if ! command -v node &> /dev/null; then
     echo -e "${RED}❌ Node.js is not installed${NC}"
@@ -128,6 +142,121 @@ if ! command -v npm &> /dev/null; then
 fi
 
 echo -e "${GREEN}✅ Prerequisites check passed${NC}"
+
+# Install Python dependencies
+echo -e "\n${BLUE}📦 Installing Python dependencies...${NC}"
+if [ -f "requirements.txt" ]; then
+    echo -e "${BLUE}Installing main requirements...${NC}"
+    pip install -q -r requirements.txt
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}❌ Failed to install Python dependencies${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✅ Python dependencies installed${NC}"
+else
+    echo -e "${YELLOW}⚠️  requirements.txt not found, skipping Python dependency installation${NC}"
+fi
+
+# Install backend Python dependencies if they exist
+if [ -f "backend/requirements.txt" ]; then
+    echo -e "${BLUE}Installing backend requirements...${NC}"
+    pip install -q -r backend/requirements.txt
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}❌ Failed to install backend Python dependencies${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✅ Backend Python dependencies installed${NC}"
+fi
+
+# Install Node.js dependencies for frontend
+echo -e "\n${BLUE}📦 Installing Node.js dependencies...${NC}"
+if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
+    cd frontend
+    echo -e "${BLUE}Installing frontend dependencies...${NC}"
+    npm install --silent
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}❌ Failed to install Node.js dependencies${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✅ Node.js dependencies installed${NC}"
+    cd ..
+else
+    echo -e "${YELLOW}⚠️  frontend/package.json not found, skipping Node.js dependency installation${NC}"
+fi
+
+# Update MCP servers configuration with correct uv path
+echo -e "\n${BLUE}🔧 Updating MCP servers configuration...${NC}"
+if command -v uv &> /dev/null; then
+    UV_PATH=$(which uv)
+    UVX_PATH="${UV_PATH}x"  # uvx is typically uv + x
+    
+    echo -e "${BLUE}Detected uv at: $UV_PATH${NC}"
+    
+    # Check if uvx exists at the expected location
+    if [ -f "$UVX_PATH" ]; then
+        echo -e "${BLUE}Found uvx at: $UVX_PATH${NC}"
+    else
+        echo -e "${YELLOW}⚠️  uvx not found at expected location: $UVX_PATH${NC}"
+        echo -e "${YELLOW}Trying alternative uvx detection...${NC}"
+        
+        # Try to find uvx directly
+        if command -v uvx &> /dev/null; then
+            UVX_PATH=$(which uvx)
+            echo -e "${BLUE}Found uvx directly at: $UVX_PATH${NC}"
+        else
+            # Check common EC2 conda environment paths
+            CONDA_ENV_PATH="~/miniconda3/envs/data_discovery_agent/bin/uvx"
+            if [ -f "$CONDA_ENV_PATH" ]; then
+                UVX_PATH="$CONDA_ENV_PATH"
+                echo -e "${BLUE}Found uvx in conda environment at: $UVX_PATH${NC}"
+            else
+                echo -e "${RED}❌ uvx not found in any expected locations${NC}"
+                echo -e "${YELLOW}Keeping existing configuration${NC}"
+                UVX_PATH=""
+            fi
+        fi
+    fi
+    
+    # Update mcp_servers.json with the correct uvx path if found
+    if [ -n "$UVX_PATH" ] && [ -f "backend/mcp_servers.json" ]; then
+        echo -e "${BLUE}Updating mcp_servers.json with uvx path: $UVX_PATH${NC}"
+        
+        # Use Python to update the JSON file safely
+        python -c "
+import json
+import sys
+
+try:
+    with open('backend/mcp_servers.json', 'r') as f:
+        config = json.load(f)
+    
+    if 'servers' in config and 'vizro-mcp' in config['servers']:
+        old_command = config['servers']['vizro-mcp']['command']
+        config['servers']['vizro-mcp']['command'] = '$UVX_PATH'
+        
+        with open('backend/mcp_servers.json', 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        print(f'✅ Updated vizro-mcp command path from {old_command} to $UVX_PATH')
+    else:
+        print('⚠️  vizro-mcp server not found in configuration')
+        
+except Exception as e:
+    print(f'❌ Error updating mcp_servers.json: {e}')
+    sys.exit(1)
+"
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✅ MCP servers configuration updated successfully${NC}"
+        else
+            echo -e "${RED}❌ Failed to update MCP servers configuration${NC}"
+            exit 1
+        fi
+    elif [ ! -f "backend/mcp_servers.json" ]; then
+        echo -e "${YELLOW}⚠️  backend/mcp_servers.json not found${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠️  uv command not found, keeping existing MCP configuration${NC}"
+fi
 
 # Function to start a service in the background
 start_service() {
@@ -289,7 +418,55 @@ wait_for_service 5001 "Flask Backend"
 # Start React Frontend
 echo -e "\n${BLUE}🎨 Starting React Frontend...${NC}"
 cd frontend
-start_service "react-frontend" "npm run dev"
+
+# Function to detect EC2 public IP
+detect_backend_url() {
+    local backend_url="http://localhost:5001"
+    
+    # Try to detect if we're running on EC2 and get public IP
+    echo -e "${BLUE}Detecting backend URL...${NC}" >&2
+    
+    # Check if we're on EC2 using IMDSv2 token-based approach
+    local imds_token=""
+    if command -v curl >/dev/null 2>&1; then
+        # Try to get IMDSv2 token
+        imds_token=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
+            -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" \
+            -s --max-time 3 --connect-timeout 2 2>/dev/null)
+    fi
+    
+    # If we got a token, we're on EC2
+    if [[ -n "$imds_token" && ${#imds_token} -gt 10 ]]; then
+        echo -e "${BLUE}Detected EC2 environment, attempting to get public IP...${NC}" >&2
+        
+        # Try to get public IP from AWS checkip service
+        local public_ip=""
+        if command -v curl >/dev/null 2>&1; then
+            public_ip=$(curl -s --max-time 5 --connect-timeout 3 checkip.amazonaws.com 2>/dev/null)
+        fi
+        
+        # Validate the IP address format
+        if [[ $public_ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            backend_url="http://${public_ip}:5001"
+            echo -e "${GREEN}✅ Using EC2 public IP for backend: ${public_ip}${NC}" >&2
+        else
+            echo -e "${YELLOW}⚠️  Could not get valid public IP, falling back to localhost${NC}" >&2
+        fi
+    else
+        echo -e "${BLUE}Not running on EC2, using localhost for backend${NC}" >&2
+    fi
+    
+    echo "$backend_url"
+}
+
+# Detect the appropriate backend URL
+BACKEND_URL=$(detect_backend_url)
+echo -e "${BLUE}Backend URL: ${BACKEND_URL}${NC}"
+
+# Set backend URL for proxy configuration
+export BACKEND_URL
+
+start_service "react-frontend" "BACKEND_URL=$BACKEND_URL npm run dev -- --host 0.0.0.0"
 cd ..
 
 # Wait for frontend to be ready
@@ -297,8 +474,9 @@ wait_for_service 3000 "React Frontend"
 
 echo -e "\n${GREEN}🎉 MCP Dashboard System is ready!${NC}"
 echo -e "${BLUE}================================${NC}"
-echo -e "${GREEN}Frontend:${NC} http://localhost:3000"
-echo -e "${GREEN}Backend API:${NC} http://localhost:5001"
+echo -e "${GREEN}Frontend (Local):${NC} http://localhost:3000"
+echo -e "${GREEN}Frontend (Public):${NC} http://$(hostname -I | awk '{print $1}' 2>/dev/null || echo 'N/A'):3000"
+echo -e "${GREEN}Backend API:${NC} ${BACKEND_URL}"
 echo -e "${GREEN}Athena MCP:${NC} http://localhost:8001/mcp"
 echo -e "${GREEN}S3 Vectors MCP:${NC} http://localhost:8002/mcp"
 
