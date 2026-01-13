@@ -25,6 +25,18 @@
       "headers": {
         "X-S3Vectors-Config": "s3vectors-mcp-server"
       }
+    },
+    "vizro-mcp": {
+      "name": "DashboardBuilder",
+      "description": "Build fluent dashboards with Vizro MCP opensourced by McKinsey",
+      "agent_type": "Dashboard",
+      "usage": "Build Dashboards from structured data",
+      "rules_prompt": "You are a Dashboard specialist Agent, given a list collected datasets you should be able to create fluent dashboards",
+      "command": "/Users/fraseque/.local/bin/uvx",
+      "transportType": "stdio",
+      "args": [
+        "vizro-mcp"
+      ]
     }
   }
 }

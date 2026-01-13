@@ -15,6 +15,7 @@ const initialState = {
   mcpStatus: {},
   reconnectionAttempts: 0,
   maxReconnectionAttempts: 5,
+  isPlanDialogOpen: false, // Track if plan confirmation dialog is open
 };
 
 function chatReducer(state, action) {
@@ -29,6 +30,8 @@ function chatReducer(state, action) {
       return { ...state, mcpStatus: action.payload };
     case 'SET_RECONNECTION_ATTEMPTS':
       return { ...state, reconnectionAttempts: action.payload };
+    case 'SET_PLAN_DIALOG_OPEN':
+      return { ...state, isPlanDialogOpen: action.payload };
     case 'ADD_MESSAGE':
       return { 
         ...state, 
@@ -43,6 +46,12 @@ function chatReducer(state, action) {
             ? { 
                 ...msg, 
                 ...action.payload,
+                // Preserve important data that shouldn't be overwritten
+                plan: action.payload.plan !== undefined ? action.payload.plan : msg.plan,
+                originalQuery: action.payload.originalQuery !== undefined ? action.payload.originalQuery : msg.originalQuery,
+                needsConfirmation: action.payload.needsConfirmation !== undefined ? action.payload.needsConfirmation : msg.needsConfirmation,
+                toolApprovalData: action.payload.toolApprovalData !== undefined ? action.payload.toolApprovalData : msg.toolApprovalData,
+                needsToolApproval: action.payload.needsToolApproval !== undefined ? action.payload.needsToolApproval : msg.needsToolApproval,
                 // Accumulate thinking content
                 thinking: action.payload.thinking !== undefined 
                   ? (msg.thinking || '') + action.payload.thinking
@@ -53,7 +62,9 @@ function chatReducer(state, action) {
                   : msg.content
               }
             : msg
-        )
+        ),
+        // Set plan dialog open state when confirmation is needed
+        isPlanDialogOpen: action.payload.needsConfirmation !== undefined ? action.payload.needsConfirmation : state.isPlanDialogOpen
       };
     case 'SET_ERROR':
       return { ...state, error: action.payload };
@@ -76,11 +87,14 @@ export function ChatProvider({ children }) {
   useEffect(() => {
     connectWebSocket();
     startHealthCheck();
+    checkMCPStatus();
 
     // Cleanup on unmount
     return () => {
       if (socketRef.current) {
+        socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
+        socketRef.current = null;
       }
       if (reconnectionTimeoutRef.current) {
         clearTimeout(reconnectionTimeoutRef.current);
@@ -99,7 +113,9 @@ export function ChatProvider({ children }) {
       transports: ['websocket', 'polling'],
       timeout: 20000,
       reconnection: false, // We'll handle reconnection manually
-      forceNew: true
+      forceNew: false, // Don't force new connections - reuse if possible
+      upgrade: true,
+      rememberUpgrade: true
     });
 
     // Connection event handlers
@@ -175,8 +191,11 @@ export function ChatProvider({ children }) {
     reconnectionTimeoutRef.current = setTimeout(() => {
       console.log(`Attempting reconnection ${state.reconnectionAttempts + 1}/${state.maxReconnectionAttempts}`);
       
+      // Clean up existing connection more gracefully
       if (socketRef.current) {
+        socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
+        socketRef.current = null;
       }
       
       connectWebSocket();
@@ -188,6 +207,11 @@ export function ChatProvider({ children }) {
     healthCheckIntervalRef.current = setInterval(() => {
       if (state.isConnected) {
         checkMCPStatus();
+        
+        // Send periodic ping to keep connection alive
+        if (socketRef.current && socketRef.current.connected) {
+          socketRef.current.emit('ping');
+        }
       }
     }, 30000);
   };
@@ -239,8 +263,11 @@ export function ChatProvider({ children }) {
   const manualReconnect = () => {
     dispatch({ type: 'SET_RECONNECTION_ATTEMPTS', payload: 0 });
     
+    // Clean up existing connection more gracefully
     if (socketRef.current) {
+      socketRef.current.removeAllListeners();
       socketRef.current.disconnect();
+      socketRef.current = null;
     }
     
     connectWebSocket();
@@ -270,6 +297,17 @@ export function ChatProvider({ children }) {
     switch (data.type) {
       case 'start':
         // Stream started
+        break;
+        
+      case 'status':
+        // Status updates from the backend
+        dispatch({
+          type: 'UPDATE_LAST_MESSAGE',
+          payload: {
+            thinking: (data.content || ''),
+            isLoading: true,
+          }
+        });
         break;
         
       case 'thinking':
@@ -414,17 +452,21 @@ export function ChatProvider({ children }) {
           break;
         
       case 'confirmation_needed':
-        dispatch({
-          type: 'UPDATE_LAST_MESSAGE',
-          payload: {
-            needsConfirmation: true,
-            plan: data.plan,
-            originalQuery: data.original_query,
-            isLoading: false,
-          }
-        });
-        // Reset global loading state
-        dispatch({ type: 'SET_LOADING', payload: false });
+        // Only dispatch if plan has items
+        if (data.plan && data.plan.length > 0) {
+          dispatch({
+            type: 'UPDATE_LAST_MESSAGE',
+            payload: {
+              needsConfirmation: true,
+              plan: data.plan || [],
+              originalQuery: data.original_query || '',
+              content: data.content || '', // Include the formatted plan text as content
+              isLoading: false,
+            }
+          });
+          // Reset global loading state
+          dispatch({ type: 'SET_LOADING', payload: false });
+        }
         break;
         
       case 'tool_approval_needed':
@@ -532,10 +574,33 @@ export function ChatProvider({ children }) {
     dispatch({ type: 'SET_LOADING', payload: false });
   };
 
+  const startNewConversation = () => {
+    // Clear messages first
+    dispatch({ type: 'CLEAR_MESSAGES' });
+    dispatch({ type: 'SET_LOADING', payload: false });
+    dispatch({ type: 'SET_PLAN_DIALOG_OPEN', payload: false });
+    
+    // Disconnect and reconnect WebSocket to get new client_id
+    if (socketRef.current) {
+      console.log('Starting new conversation - reinitializing WebSocket connection');
+      socketRef.current.removeAllListeners();
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+    
+    // Reset reconnection attempts
+    dispatch({ type: 'SET_RECONNECTION_ATTEMPTS', payload: 0 });
+    
+    // Reconnect after a brief delay to ensure clean disconnection
+    setTimeout(() => {
+      connectWebSocket();
+    }, 500);
+  };
+
   const getAvailableTools = async () => {
     try {
-      const response = await axios.get('/api/tools');
-      dispatch({ type: 'SET_TOOLS', payload: response.data.tools });
+      const response = await axios.get('/api/orchestrator/agents');
+      dispatch({ type: 'SET_TOOLS', payload: response.data.agents });
     } catch (error) {
       console.error('Error fetching tools:', error);
     }
@@ -543,6 +608,11 @@ export function ChatProvider({ children }) {
 
   const confirmPlan = async (plan, original_query, is_single_widget=false) => {
     try {
+      console.log('confirmPlan called with:', { plan, original_query, is_single_widget });
+      
+      // Close plan dialog
+      dispatch({ type: 'SET_PLAN_DIALOG_OPEN', payload: false });
+      
       // Update the last message to show loading state
       dispatch({
         type: 'UPDATE_LAST_MESSAGE',
@@ -555,8 +625,10 @@ export function ChatProvider({ children }) {
       
       // Send confirmation via WebSocket
       if (socketRef.current && socketRef.current.connected) {
+        console.log('Sending confirm_plan via WebSocket');
         socketRef.current.emit('confirm_plan', {"plan": plan, "original_query": original_query, "is_single_widget": is_single_widget});
       } else {
+        console.error('WebSocket not connected');
         throw new Error('WebSocket not connected');
       }
     } catch (error) {
@@ -628,23 +700,53 @@ export function ChatProvider({ children }) {
     await confirmToolApproval(approvalData, 'always');
   };
 
-  const rejectPlan = async (plan, original_query) => {
-    // Update the last message to show rejection
+  const rejectPlan = async (plan, original_query, feedback = '') => {
+    // Close plan dialog
+    dispatch({ type: 'SET_PLAN_DIALOG_OPEN', payload: false });
+    
+    // Update the last message to show rejection and ask for new approach
     dispatch({
       type: 'UPDATE_LAST_MESSAGE',
       payload: {
         needsConfirmation: false,
-        content: 'Plan rejected. Please try a different query or approach.',
-        isLoading: false,
+        content: 'Plan rejected. The orchestrator will create a new plan based on your feedback.',
+        isLoading: true,
+        thinking: 'Processing plan rejection and user feedback...'
       }
     });
-    dispatch({ type: 'SET_LOADING', payload: false });
+    dispatch({ type: 'SET_LOADING', payload: true });
+
+    try {
+      // Send rejection feedback to backend via WebSocket
+      if (socketRef.current && socketRef.current.connected) {
+        socketRef.current.emit('reject_plan', {
+          "plan": plan,
+          "original_query": original_query,
+          "rejection_reason": feedback || "User requested a different approach"
+        });
+      } else {
+        throw new Error('WebSocket not connected');
+      }
+    } catch (error) {
+      console.error('Error rejecting plan:', error);
+      dispatch({
+        type: 'UPDATE_LAST_MESSAGE',
+        payload: {
+          content: 'Sorry, I encountered an error processing your rejection. Please try again.',
+          isLoading: false,
+          error: true,
+        }
+      });
+      dispatch({ type: 'SET_LOADING', payload: false });
+      toast.error('Failed to reject plan');
+    }
   };
 
   const value = {
     ...state,
     sendMessage,
     clearMessages,
+    startNewConversation,
     getAvailableTools,
     checkConnection,
     checkMCPStatus,

@@ -6,4 +6,5 @@ fastmcp>=2.14.2
 boto3>=1.34.0
 botocore>=1.34.0
 clickhouse-connect>=0.6.0
-websockets
+websockets>=15.0.1
+uv>=0.9.24

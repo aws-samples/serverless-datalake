@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Flask API for MCP Dashboard Chatbot
-Provides REST endpoints and SSE streaming for the React frontend to interact with MCP servers.
+Flask API for Graph-based MCP Chatbot
+Provides REST endpoints and SSE streaming for the React frontend to interact with MCP servers using graph execution.
 """
 
-from flask import Flask, request, jsonify, Response, stream_template
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit, disconnect
 import asyncio
@@ -14,16 +14,18 @@ from datetime import datetime
 import sys
 import os
 import pathlib
+import signal
+import atexit
+import threading
+import time
 
 # Import from reorganized modules
-from database.database_mcp_clients import MCPClientChatbot
+from database.graph_integration import GraphIntegration, initialize_graph_system
+from api.orchestrator_endpoints import orchestrator_bp
 from config.chatbot_config import ChatbotConfig, ModelConfig, SessionConfig, ProcessingConfig, DashboardConfig
-import threading
-import queue
-import time
+
 # Configure logging
 import logging.config
-import os
 
 # Create logs directory if it doesn't exist
 os.makedirs('logs', exist_ok=True)
@@ -62,12 +64,12 @@ logging_config = {
         },
         'socketio': {
             'handlers': ['default', 'file'],
-            'level': 'ERROR',  # Always keep socketio at ERROR level
+            'level': 'ERROR',
             'propagate': False,
         },
         'engineio': {
             'handlers': ['default', 'file'],
-            'level': 'ERROR',  # Always keep engineio at ERROR level
+            'level': 'ERROR',
             'propagate': False,
         },
         'werkzeug': {
@@ -83,6 +85,10 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app, origins="*")
+
+# Register orchestrator endpoints
+app.register_blueprint(orchestrator_bp)
+
 socketio = SocketIO(
     app,
     cors_allowed_origins="*",
@@ -90,27 +96,58 @@ socketio = SocketIO(
     logger=False,
     engineio_logger=False,
 )
-# Initialize SocketIO with CORS support
-# socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
-
-# Global chatbot template and per-connection instances
-chatbot_template = None
-chatbot_instances = {}
-chatbot_lock = threading.Lock()
-sse_urls_global = None
+# Global graph integration
+graph_integration = None
 config_global = None
+active_sessions = {}
+session_lock = threading.Lock()
 
-
-def start_chatbot():
-    """Initialize the chatbot template and global configuration."""
-    global chatbot_template, sse_urls_global, config_global
-
-    def run_chatbot():
-        global chatbot_template, sse_urls_global, config_global
-        sse_urls = []
+def cleanup_all_sessions():
+    """Clean up all active sessions."""
+    global graph_integration, active_sessions
+    
+    logger.info("Starting cleanup of all sessions")
+    
+    # Clean up all active sessions
+    with session_lock:
+        active_sessions.clear()
+    
+    # Clean up the graph integration
+    if graph_integration:
         try:
-            logger.info("Starting MCP chatbot template initialization")
+            logger.info("Cleaning up graph integration")
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(graph_integration.cleanup())
+            finally:
+                loop.close()
+            graph_integration = None
+        except Exception as e:
+            logger.error(f"Error cleaning up graph integration: {e}")
+    
+    logger.info("Session cleanup completed")
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals."""
+    logger.info(f"Received signal {signum}, initiating shutdown")
+    cleanup_all_sessions()
+    sys.exit(0)
+
+# Register signal handlers and cleanup
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+atexit.register(cleanup_all_sessions)
+
+def start_graph_system():
+    """Initialize the graph-based MCP system."""
+    global graph_integration, config_global
+
+    def run_initialization():
+        global graph_integration, config_global
+        try:
+            logger.info("Starting graph-based MCP system initialization")
             
             # Load configuration
             config_path = os.path.join(os.path.dirname(__file__), 'config', 'chatbot_config.json')
@@ -121,280 +158,206 @@ def start_chatbot():
                 logger.info("Using default configuration")
                 config_global = ChatbotConfig()
             
-            # Load MCP server details from JSON file
-            try:
-                possible_paths = [
-                    'mcp_servers.json',  # Current directory
-                    os.path.join(os.path.dirname(__file__), 'mcp_servers.json'),  # Same dir as script
-                    os.path.join(os.getcwd(), 'mcp_servers.json'),  # Current working directory
-                ]
-                
-                config_path = None
-                for path in possible_paths:
-                    if os.path.exists(path):
-                        config_path = path
-                        break
-                if not config_path:
-                    logger.error(f"mcp_servers.json not found in any of these locations: {possible_paths}")
-                    logger.error(f"Current working directory: {os.getcwd()}")
-                    logger.error(f"Script directory: {os.path.dirname(__file__)}")
-                    raise FileNotFoundError("mcp_servers.json not found")
-                
-                with open(config_path, 'r') as f:
-                    mcp_config = json.load(f)
-                    sse_urls_global = mcp_config.get('servers', [])
-                logger.info(f"Loaded {len(sse_urls_global)} MCP servers from configuration file")
-            except Exception as e:
-                logger.error(f"Failed to load MCP servers from config file: {e}")
-                logger.error("No MCP servers configured, chatbot will not be initialized")
-                sys.exit(0)
-                
-            # Create a template chatbot instance to validate configuration
-            logger.info("Creating MCPClientChatbot template with configuration")
-            chatbot_template = MCPClientChatbot(sse_urls=sse_urls_global, config=config_global)
-            
-            # Start the template chatbot to validate MCP connections
+            # Initialize the graph system
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-            logger.info("Starting chatbot template initialization")
-            loop.run_until_complete(chatbot_template.start())
-            logger.info("Chatbot template initialized successfully")
+            logger.info("Starting graph system initialization")
+            try:
+                success = loop.run_until_complete(initialize_graph_system())
+                if success:
+                    logger.info("Graph system initialized successfully")
+                    # Get the global graph integration instance
+                    from database.graph_integration import graph_integration as gi
+                    graph_integration = gi
+                else:
+                    logger.error("Graph system initialization failed")
+                    graph_integration = None
+            finally:
+                loop.close()
                 
         except Exception as e:
-            logger.error(f"Failed to start chatbot template: {e}")
+            logger.error(f"Failed to start graph system: {e}")
             logger.error(f"Error details: {str(e)}")
             logger.info("Running in demo mode without MCP servers")
-            chatbot_template = None
+            graph_integration = None
 
-    # Start chatbot template initialization in a separate thread
-    thread = threading.Thread(target=run_chatbot, daemon=True)
+    # Start graph system initialization in a separate thread
+    thread = threading.Thread(target=run_initialization, daemon=True)
     thread.start()
     
-    # Give the thread a moment to initialize
-    time.sleep(1)
+    # Give the thread a moment to initialize vizro takes time
+    time.sleep(15)
     
-    # Check if chatbot template was initialized successfully
-    with chatbot_lock:
-        if chatbot_template is None:
-            logger.error("Chatbot template failed to initialize")
-        else:
-            logger.info("Chatbot template thread started successfully")
+    # Check if graph system was initialized successfully
+    if graph_integration is None:
+        logger.error("Graph system failed to initialize")
+    else:
+        logger.info("Graph system started successfully")
 
-def create_chatbot_for_connection(client_id):
-    """Create a new chatbot instance for a specific connection."""
-    global chatbot_template, sse_urls_global, config_global, chatbot_instances
-    
+# REST API Endpoints
+
+@app.route("/api/health", methods=["GET"])
+def api_health_check():
+    """API health check endpoint."""
     try:
-        if not chatbot_template or not sse_urls_global or not config_global:
-            raise Exception("Chatbot template not initialized")
-            
-        logger.info(f"Creating new chatbot instance for connection {client_id}")
+        # Check if graph system is available
+        system_status = "healthy" if graph_integration else "unhealthy"
         
-        # Create a new chatbot instance for this connection
-        new_chatbot = MCPClientChatbot(sse_urls=sse_urls_global, config=config_global)
+        return jsonify({
+            "status": system_status,
+            "timestamp": datetime.now().isoformat(),
+            "service": "graph-mcp-chatbot-backend",
+            "graph_system_available": graph_integration is not None
+        }), 200
+    except Exception as e:
+        logger.error(f"API health check failed: {e}")
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+@app.route("/api/mcp-status", methods=["GET"])
+def get_mcp_status():
+    """Get MCP server connection status."""
+    try:
+        if not graph_integration:
+            return jsonify({
+                "status": "error",
+                "error": "Graph system not initialized",
+                "servers": {},
+                "timestamp": datetime.now().isoformat()
+            }), 500
         
-        # Initialize the new chatbot instance
+        # Get status from graph integration
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(new_chatbot.start())
-            logger.info(f"Chatbot instance initialized for connection {client_id}")
+            status = loop.run_until_complete(graph_integration.get_connection_status())
         finally:
             loop.close()
         
-        # Store the instance
-        with chatbot_lock:
-            chatbot_instances[client_id] = new_chatbot
+        # Load MCP servers configuration for additional details
+        mcp_config = {}
+        try:
+            import pathlib
+            current_file = pathlib.Path(__file__)
+            backend_dir = current_file.parent
+            config_path = backend_dir / "mcp_servers.json"
             
-        return new_chatbot
+            with open(config_path, 'r') as f:
+                mcp_config_raw = json.load(f)
+                mcp_config = mcp_config_raw.get("servers", {})
+        except Exception as e:
+            logger.warning(f"Could not load MCP config: {e}")
+        
+        # Format for frontend with additional server details
+        servers = {}
+        for name, connection_info in status.get("connections", {}).items():
+            server_config = mcp_config.get(name, {})
+            
+            # Determine the status
+            if connection_info.get("status") == "disabled":
+                server_status = "disabled"
+            elif connection_info.get("status") == "not_initialized":
+                server_status = "not_initialized"
+            elif connection_info.get("connected", False):
+                server_status = "connected"
+            else:
+                server_status = "disconnected"
+            
+            servers[name] = {
+                "name": server_config.get("name", name.title()),
+                "status": server_status,
+                "mcp_url": server_config.get("url", ""),
+                "mcp_command": server_config.get("command", ""),
+                "reconnection_attempts": connection_info.get("reconnection_attempts", 0),
+                "max_attempts_reached": connection_info.get("max_attempts_reached", False),
+                "disabled": server_config.get("disabled", False)
+            }
+        
+        return jsonify({
+            "status": "success",
+            "servers": servers,
+            "total_servers": status.get("total_clients", 0),
+            "connected_servers": status.get("connected_clients", 0),
+            "timestamp": datetime.now().isoformat()
+        })
         
     except Exception as e:
-        logger.error(f"Failed to create chatbot instance for connection {client_id}: {e}")
-        return None
+        logger.error(f"Error getting MCP status: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e),
+            "servers": {},
+            "timestamp": datetime.now().isoformat()
+        }), 500
 
-def get_chatbot_for_connection(client_id):
-    """Get the chatbot instance for a specific connection."""
-    with chatbot_lock:
-        return chatbot_instances.get(client_id)
-
-def refresh_all_orchestrator_agents():
-    """Refresh orchestrator agents across all active chatbot instances."""
-    refreshed_count = 0
-    failed_count = 0
-    
-    with chatbot_lock:
-        for client_id, chatbot_instance in chatbot_instances.items():
-            try:
-                chatbot_instance.refresh_orchestrator_agent()
-                refreshed_count += 1
-                logger.info(f"Refreshed orchestrator agent for chatbot instance {client_id}")
-            except Exception as e:
-                failed_count += 1
-                logger.error(f"Failed to refresh orchestrator agent for chatbot instance {client_id}: {e}")
-    
-    logger.info(f"Orchestrator agent refresh completed: {refreshed_count} successful, {failed_count} failed")
-    return {"refreshed": refreshed_count, "failed": failed_count}
-
-def cleanup_chatbot_for_connection(client_id):
-    """Clean up the chatbot instance for a specific connection."""
-    with chatbot_lock:
-        if client_id in chatbot_instances:
-            try:
-                chatbot_instances[client_id].destroy_all_agents(session_id=client_id)
-                del chatbot_instances[client_id]
-                logger.info(f"Cleaned up chatbot instance for connection {client_id}")
-            except Exception as e:
-                logger.error(f"Error cleaning up chatbot instance for connection {client_id}: {e}")
-
-@app.route("/api/dashboard/<filename>", methods=["GET"])
-def serve_dashboard(filename):
-    """Serve generated dashboard HTML files."""
+@app.route("/api/mcp-reconnect", methods=["POST"])
+def reconnect_mcp():
+    """Reconnect MCP servers."""
     try:
-        # Use pathlib for relative path
-        current_file = pathlib.Path(__file__)
-        project_root = current_file.parent.parent
-        dashboard_path = project_root / "generated_dashboards" / filename
-        if dashboard_path.exists():
-            with open(dashboard_path, "r", encoding="utf-8") as f:
-                html_content = f.read()
-            return html_content, 200, {"Content-Type": "text/html"}
+        data = request.get_json() or {}
+        mcp_name = data.get("mcp_name")
+        
+        if not graph_integration:
+            return jsonify({
+                "status": "error",
+                "error": "Graph system not initialized",
+                "timestamp": datetime.now().isoformat()
+            }), 500
+        
+        # Reinitialize MCP clients to detect newly started servers
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            success = loop.run_until_complete(graph_integration.reinitialize_mcp_clients())
+        finally:
+            loop.close()
+        
+        if success:
+            return jsonify({
+                "status": "success",
+                "message": f"MCP clients reinitialized successfully",
+                "timestamp": datetime.now().isoformat()
+            })
         else:
-            return jsonify({"error": "Dashboard not found"}), 404
+            return jsonify({
+                "status": "error",
+                "error": "Failed to reinitialize MCP clients",
+                "timestamp": datetime.now().isoformat()
+            }), 500
+        
     except Exception as e:
-        logger.error(f"Error serving dashboard: {e}")
-        return jsonify({"error": "Failed to serve dashboard"}), 500
-
-@app.route("/api/dashboards/history", methods=["GET"])
-def get_dashboard_history():
-    """Get list of all generated dashboards."""
-    try:
-        # Use pathlib for relative path
-        current_file = pathlib.Path(__file__)
-        project_root = current_file.parent.parent
-        dashboard_dir = project_root / "generated_dashboards"
-        if not dashboard_dir.exists():
-            return jsonify({"dashboards": []})
-
-        dashboards = []
-        for file_path in dashboard_dir.glob("*.html"):
-            stat = file_path.stat()
-            dashboards.append(
-                {
-                    "filename": file_path.name,
-                    "created_at": datetime.fromtimestamp(stat.st_ctime).isoformat(),
-                    "size": stat.st_size,
-                }
-            )
-
-        # Sort by creation date, newest first
-        dashboards.sort(key=lambda x: x["created_at"], reverse=True)
-        return jsonify({"dashboards": dashboards})
-
+        logger.error(f"Error reconnecting MCP: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
     except Exception as e:
-        logger.error(f"Error getting dashboard history: {e}")
-        return jsonify({"error": "Failed to get dashboard history"}), 500
-
-
-@app.route("/api/reports/history", methods=["GET"])
-def get_report_history():
-    """Get list of all generated reports."""
-    try:
-        # Use pathlib for relative path
-        current_file = pathlib.Path(__file__)
-        project_root = current_file.parent.parent
-        dashboard_dir = project_root / "generated_reports"
-        if not dashboard_dir.exists():
-            return jsonify({"reports": []})
-
-        dashboards = []
-        for file_path in dashboard_dir.glob("*.html"):
-            stat = file_path.stat()
-            dashboards.append(
-                {
-                    "filename": file_path.name,
-                    "created_at": datetime.fromtimestamp(stat.st_ctime).isoformat(),
-                    "size": stat.st_size,
-                }
-            )
-
-        # Sort by creation date, newest first
-        dashboards.sort(key=lambda x: x["created_at"], reverse=True)
-        return jsonify({"reports": dashboards})
-
+        logger.error(f"Error reconnecting MCP: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+        # In a full implementation, you would call graph_integration.reconnect_mcp(mcp_name)
+        
+        return jsonify({
+            "status": "success",
+            "message": f"Reconnection attempted for {mcp_name if mcp_name else 'all MCP servers'}",
+            "timestamp": datetime.now().isoformat()
+        })
+        
     except Exception as e:
-        logger.error(f"Error getting report history: {e}")
-        return jsonify({"error": "Failed to get report history"}), 500
-
-
-@app.route("/api/report/<filename>", methods=["GET"])
-def serve_report(filename):
-    """Serve generated report HTML files."""
-    try:
-        # Use pathlib for relative path
-        current_file = pathlib.Path(__file__)
-        project_root = current_file.parent.parent
-        dashboard_path = project_root / "generated_reports" / filename
-        if dashboard_path.exists():
-            with open(dashboard_path, "r", encoding="utf-8") as f:
-                html_content = f.read()
-            return html_content, 200, {"Content-Type": "text/html"}
-        else:
-            return jsonify({"error": "Report not found"}), 404
-    except Exception as e:
-        logger.error(f"Error serving report: {e}")
-        return jsonify({"error": "Failed to serve report"}), 500
-
-
-@app.route("/api/widget/<filename>", methods=["GET"])
-def serve_widget(filename):
-    """Serve generated widget HTML files."""
-    try:
-        # Use pathlib for relative path
-        current_file = pathlib.Path(__file__)
-        project_root = current_file.parent.parent
-        widget_path = project_root / "generated_widgets" / filename
-        if widget_path.exists():
-            with open(widget_path, "r", encoding="utf-8") as f:
-                html_content = f.read()
-            return html_content, 200, {"Content-Type": "text/html"}
-        else:
-            return jsonify({"error": "Widget not found"}), 404
-    except Exception as e:
-        logger.error(f"Error serving dashboard: {e}")
-        return jsonify({"error": "Failed to serve dashboard"}), 500
-
-@app.route("/api/widget/history", methods=["GET"])
-def get_widget_history():
-    """Get list of all generated widgets."""
-    try:
-        # Use pathlib for relative path
-        current_file = pathlib.Path(__file__)
-        project_root = current_file.parent.parent
-        widget_dir = project_root / "generated_widgets"
-        if not widget_dir.exists():
-            return jsonify({"widgets": []})
-
-        widgets = []
-        for file_path in widget_dir.glob("*.html"):
-            stat = file_path.stat()
-            widgets.append(
-                {
-                    "filename": file_path.name,
-                    "created_at": datetime.fromtimestamp(stat.st_ctime).isoformat(),
-                    "size": stat.st_size,
-                }
-            )
-
-        # Sort by creation date, newest first
-        widgets.sort(key=lambda x: x["created_at"], reverse=True)
-        return jsonify({"widgets": widgets, "dashboards": widgets})
-
-    except Exception as e:
-        logger.error(f"Error getting widget history: {e}")
-        return jsonify({"error": "Failed to get widget history"}), 500
-
-
+        logger.error(f"Error reconnecting MCP servers: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
 
 @app.route("/api/config", methods=["GET"])
 def get_config():
@@ -430,7 +393,7 @@ def get_config():
                 "debug_mode": config_global.debug_mode
             })
         else:
-            return jsonify({"error": "Chatbot not initialized"}), 500
+            return jsonify({"error": "Graph system not initialized"}), 500
     except Exception as e:
         logger.error(f"Error getting config: {e}")
         return jsonify({"error": "Failed to get configuration"}), 500
@@ -442,7 +405,7 @@ def update_config():
     
     try:
         if not config_global:
-            return jsonify({"error": "Chatbot not initialized"}), 500
+            return jsonify({"error": "Graph system not initialized"}), 500
             
         config_data = request.get_json()
         if not config_data:
@@ -461,14 +424,9 @@ def update_config():
         # Update the global configuration
         config_global = new_config
         
-        # Update all existing chatbot instances
-        with chatbot_lock:
-            for client_id, chatbot_instance in chatbot_instances.items():
-                try:
-                    chatbot_instance.update_config(new_config)
-                    logger.info(f"Updated config for chatbot instance {client_id}")
-                except Exception as e:
-                    logger.error(f"Failed to update config for chatbot instance {client_id}: {e}")
+        # Update the graph integration
+        if graph_integration:
+            graph_integration.update_config(new_config)
         
         return jsonify({"message": "Configuration updated successfully"})
         
@@ -476,193 +434,8 @@ def update_config():
         logger.error(f"Error updating config: {e}")
         return jsonify({"error": f"Failed to update configuration: {str(e)}"}), 500
 
-@app.route("/health", methods=["GET"])
-def health_check():
-    """Health check endpoint for container health monitoring."""
-    try:
-        return jsonify({
-            "status": "healthy",
-            "timestamp": datetime.now().isoformat(),
-            "service": "mcp-data-detective-backend"
-        }), 200
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return jsonify({
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }), 500
+# WebSocket Event Handlers
 
-@app.route("/api/mcp-status", methods=["GET"])
-def get_mcp_status():
-    """Get MCP server connection status."""
-    try:
-        if not chatbot_template:
-            return jsonify({"error": "Chatbot not initialized"}), 500
-            
-        # Get detailed connection status for initialized clients
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            connection_status = loop.run_until_complete(chatbot_template.get_connection_status())
-        finally:
-            loop.close()
-            
-        servers = {}
-        
-        # First, add all configured servers from the original configuration
-        for server_key, server_config in sse_urls_global.items():
-            server_name = server_config.get("name", str(server_key).capitalize())
-            servers[server_key] = {  # Use server_key as the consistent identifier
-                "name": server_name,
-                "status": "not_initialized",  # Default status
-                "mcp_url": server_config.get("url", ""),
-                "mcp_command": server_config.get("command", ""),
-                "mcp_args": server_config.get("args", ""),
-                "reconnection_attempts": 0,
-                "max_attempts_reached": False,
-                "disabled": server_config.get("disabled", False),
-                "transport_type": server_config.get("transportType", "stdio"),
-                "description": server_config.get("description", "")
-            }
-        
-        # Then, update with actual status for initialized clients
-        for key, value in chatbot_template.mcp_clients.items():
-            status_info = connection_status.get(key, {})
-            if key in servers:  # Update existing entry
-                servers[key].update({
-                    "status": "connected" if status_info.get("connected", False) else "disconnected",
-                    "reconnection_attempts": status_info.get("reconnection_attempts", 0),
-                    "max_attempts_reached": status_info.get("max_attempts_reached", False),
-                    "disabled": False,  # If it's in mcp_clients, it's not disabled
-                })
-            else:  # This shouldn't happen, but handle it gracefully
-                servers[key] = {
-                    "name": value.get("name", key),
-                    "status": "connected" if status_info.get("connected", False) else "disconnected",
-                    "mcp_url": value.get("mcp_url", ""),
-                    "mcp_command": value.get("mcp_command", ""),
-                    "mcp_args": value.get("mcp_args", ""),
-                    "reconnection_attempts": status_info.get("reconnection_attempts", 0),
-                    "max_attempts_reached": status_info.get("max_attempts_reached", False),
-                    "disabled": False,
-                    "transport_type": value.get("transportType", "stdio"),
-                    "description": value.get("description", "")
-                }
-            
-        return jsonify({
-            "timestamp": datetime.now().isoformat(), 
-            "servers": servers,
-            "health_check_enabled": True,
-            "total_configured": len(sse_urls_global),
-            "total_initialized": len(chatbot_template.mcp_clients),
-            "active_connections": len(chatbot_instances)
-        })
-
-    except Exception as e:
-        logger.error(f"MCP status check failed: {e}")
-        return (
-            jsonify({"error": "Failed to check MCP server status", "details": str(e)}),
-            500,
-        )
-
-@app.route("/api/mcp-reconnect", methods=["POST"])
-def force_mcp_reconnect():
-    """Force reconnection of MCP servers."""
-    try:
-        if not chatbot_template:
-            return jsonify({"error": "Chatbot not initialized"}), 500
-            
-        data = request.get_json() or {}
-        mcp_name = data.get("mcp_name")
-        
-        def reconnect_task():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                if mcp_name:
-                    # Check if server is initialized
-                    if mcp_name in chatbot_template.mcp_clients:
-                        # Reconnect existing client
-                        success = loop.run_until_complete(chatbot_template.force_reconnect_client(mcp_name))
-                        return {"mcp_name": mcp_name, "success": success, "action": "reconnected"}
-                    else:
-                        # Try to initialize uninitialized server
-                        success = loop.run_until_complete(chatbot_template.retry_failed_initialization(mcp_name))
-                        return {"mcp_name": mcp_name, "success": success, "action": "initialized"}
-                else:
-                    # Reconnect all existing clients
-                    loop.run_until_complete(chatbot_template.force_reconnect_all())
-                    
-                    # Try to initialize any failed servers
-                    for server_key in sse_urls_global.keys():
-                        if server_key not in chatbot_template.mcp_clients:
-                            logger.info(f"Attempting to initialize previously failed server: {server_key}")
-                            loop.run_until_complete(chatbot_template.retry_failed_initialization(server_key))
-                    
-                    return {"message": "Reconnection and initialization attempted for all MCP servers"}
-            finally:
-                loop.close()
-        
-        result = reconnect_task()
-        
-        # Also update all active chatbot instances
-        with chatbot_lock:
-            for client_id, chatbot_instance in chatbot_instances.items():
-                try:
-                    def update_instance():
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            if mcp_name:
-                                loop.run_until_complete(chatbot_instance.force_reconnect_client(mcp_name))
-                            else:
-                                loop.run_until_complete(chatbot_instance.force_reconnect_all())
-                        finally:
-                            loop.close()
-                    
-                    update_instance()
-                    logger.info(f"Updated MCP connections for chatbot instance {client_id}")
-                except Exception as e:
-                    logger.error(f"Failed to update MCP connections for chatbot instance {client_id}: {e}")
-        
-        return jsonify({
-            "message": "Reconnection completed",
-            "result": result,
-            "timestamp": datetime.now().isoformat()
-        })
-        
-    except Exception as e:
-        logger.error(f"MCP reconnection failed: {e}")
-        return jsonify({
-            "error": "Failed to reconnect MCP servers", 
-            "details": str(e)
-        }), 500
-
-
-@app.route("/api/refresh-orchestrators", methods=["POST"])
-def refresh_orchestrators():
-    """Manually refresh orchestrator agents across all active connections."""
-    try:
-        result = refresh_all_orchestrator_agents()
-        
-        return jsonify({
-            "message": "Orchestrator agents refresh completed",
-            "refreshed_instances": result["refreshed"],
-            "failed_instances": result["failed"],
-            "total_instances": len(chatbot_instances),
-            "timestamp": datetime.now().isoformat()
-        })
-        
-    except Exception as e:
-        logger.error(f"Failed to refresh orchestrator agents: {e}")
-        return jsonify({
-            "error": "Failed to refresh orchestrator agents", 
-            "details": str(e)
-        }), 500
-
-
-# socket event handlers
 @socketio.on("connect")
 def handle_connect():
     """Handle WebSocket connection."""
@@ -670,9 +443,9 @@ def handle_connect():
         client_id = request.sid
         logger.info(f"Client connecting: Socket ID {client_id}")
         
-        # Check if chatbot template exists
-        if not chatbot_template:
-            logger.error("Chatbot template not initialized when handling connection")
+        # Check if graph system is available
+        if not graph_integration:
+            logger.error("Graph system not initialized when handling connection")
             emit(
                 "connected",
                 {
@@ -682,71 +455,26 @@ def handle_connect():
                 },
             )
             return
-            
-        # Initialize the conversation manager in a separate thread to avoid blocking
-        def initialize_conversation():
-            try:
-                logger.info(f"Creating chatbot instance for session {client_id}")
-                
-                # Create a new chatbot instance for this connection
-                chatbot_instance = create_chatbot_for_connection(client_id)
-                
-                if not chatbot_instance:
-                    raise Exception("Failed to create chatbot instance")
-
-                # Create agents for this session
-                try:
-                    chatbot_instance.create_all_agents(user_id=client_id, session_id=client_id)
-                    
-                    # Verify that the orchestrator agent was created
-                    if not chatbot_instance.orchestrate_agent:
-                        raise Exception("Orchestrator agent was not created properly")
-                        
-                    logger.info(f"Agents created successfully for session {client_id}")
-                    
-                    # Emit connection success with session info
-                    socketio.emit(
-                        "connected",
-                        {
-                            "status": "connected",
-                            "sid": client_id,
-                            "timestamp": datetime.now().isoformat()
-                        },
-                        room=client_id,
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to create agents for session {client_id}: {e}")
-                    socketio.emit(
-                        "connected",
-                        {
-                            "status": "error",
-                            "sid": client_id,
-                            "error": f"Failed to initialize chat system: {str(e)}",
-                            "timestamp": datetime.now().isoformat(),
-                        },
-                        room=client_id,
-                    )
-
-            except Exception as e:
-                logger.error(
-                    f"Error initializing conversation for session {client_id}: {e}"
-                )
-                socketio.emit(
-                    "connected",
-                    {
-                        "status": "error",
-                        "sid": client_id,
-                        "error": str(e),
-                        "timestamp": datetime.now().isoformat(),
-                    },
-                    room=client_id,
-                )
-
-        # Start initialization in background thread
-        init_thread = threading.Thread(target=initialize_conversation, daemon=True)
-        init_thread.start()
-
-        logger.info(f"Client connection handler started for: {client_id}")
+        
+        # Register the session
+        with session_lock:
+            active_sessions[client_id] = {
+                "connected_at": datetime.now().isoformat(),
+                "user_id": client_id,
+                "session_id": client_id
+            }
+        
+        # Emit connection success
+        emit(
+            "connected",
+            {
+                "status": "connected",
+                "sid": client_id,
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+        
+        logger.info(f"Client connected successfully: {client_id}")
 
     except Exception as e:
         logger.error(f"Error in WebSocket connect handler: {e}")
@@ -761,20 +489,21 @@ def handle_connect():
 
 @socketio.on("disconnect")
 def handle_disconnect():
-    """Handle WebSocket disconnection and preserve conversation state."""
+    """Handle WebSocket disconnection."""
     try:
         client_id = request.sid
         
-        emit("disconnected",
-            {
-                "status": "disconnected",
-                "sid": client_id,
-                "timestamp": datetime.now().isoformat(),
-            }
-            )
+        emit("disconnected", {
+            "status": "disconnected",
+            "sid": client_id,
+            "timestamp": datetime.now().isoformat(),
+        })
         
-        # Clean up the chatbot instance for this connection
-        cleanup_chatbot_for_connection(client_id)
+        # Remove from active sessions
+        with session_lock:
+            if client_id in active_sessions:
+                del active_sessions[client_id]
+                logger.info(f"Removed session for connection {client_id}")
         
     except Exception as e:
         logger.error(f"Error in WebSocket disconnect handler: {e}")
@@ -786,16 +515,13 @@ def handle_ping():
 
 @socketio.on("chat_message")
 def handle_chat_message(data):
-    """Handle chat messages through WebSocket with conversation state."""
+    """Handle chat messages through WebSocket with graph execution."""
     try:
         client_sid = request.sid
         
-        # Get the chatbot instance for this connection
-        chatbot_instance = get_chatbot_for_connection(client_sid)
-        
-        # Check if chatbot instance exists
-        if not chatbot_instance:
-            logger.error(f"Chatbot instance not found for connection {client_sid}")
+        # Check if graph system is available
+        if not graph_integration:
+            logger.error(f"Graph system not available for connection {client_sid}")
             emit(
                 "chat_response",
                 {
@@ -805,29 +531,9 @@ def handle_chat_message(data):
                 },
             )
             return
-            
-        # Check if orchestrator agent exists and create if needed
-        if not chatbot_instance.orchestrate_agent:
-            logger.warning(f"Orchestrator agent not found for connection {client_sid}, creating agents")
-            try:
-                chatbot_instance.create_all_agents(user_id=client_sid, session_id=client_sid)
-                if not chatbot_instance.orchestrate_agent:
-                    raise Exception("Failed to create orchestrator agent")
-            except Exception as e:
-                logger.error(f"Failed to create agents for connection {client_sid}: {e}")
-                emit(
-                    "chat_response",
-                    {
-                        "type": "error",
-                        "content": "Failed to initialize chat system. Please try again later.",
-                        "timestamp": datetime.now().isoformat(),
-                    },
-                )
-                return
-                
+        
         message = data.get("message", "").strip()
         
-
         if not message:
             emit(
                 "chat_response",
@@ -858,10 +564,40 @@ def handle_chat_message(data):
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
-                # Process message with conversation manager
-                loop.run_until_complete(
-                    chatbot_instance.process_message_stream(message, stream_callback, user_id=client_sid, session_id=client_sid)
+                # Process message with graph system
+                from database.graph_integration import process_graph_query
+                result = loop.run_until_complete(
+                    process_graph_query(
+                        message, 
+                        client_sid, 
+                        client_sid, 
+                        stream_callback
+                    )
                 )
+                
+                # Send final result if needed
+                if result.get("type") == "confirmation_needed":
+                    socketio.emit(
+                        "chat_response",
+                        {
+                            "type": "confirmation_needed",
+                            "plan": result.get("plan", []),
+                            "original_query": result.get("original_query", ""),
+                            "timestamp": datetime.now().isoformat(),
+                        },
+                        room=client_sid,
+                    )
+                elif result.get("type") == "tool_approval_needed":
+                    socketio.emit(
+                        "chat_response",
+                        {
+                            "type": "tool_approval_needed",
+                            **result.get("content", {}),
+                            "timestamp": datetime.now().isoformat(),
+                        },
+                        room=client_sid,
+                    )
+                
             except Exception as e:
                 logger.error(f"Error processing message for connection {client_sid}: {e}")
                 socketio.emit(
@@ -903,20 +639,12 @@ def handle_chat_message(data):
 
 @socketio.on("confirm_plan")
 def handle_confirm_plan(data):
-    """
-    Handle plan confirmation from client.
-    
-    Args:
-        data: Dictionary containing the plan and original query
-    """
+    """Handle plan confirmation from client."""
     try:
         client_sid = request.sid
         
-        # Get the chatbot instance for this connection
-        chatbot_instance = get_chatbot_for_connection(client_sid)
-        
-        if not chatbot_instance:
-            logger.error(f"Chatbot instance not found for connection {client_sid}")
+        if not graph_integration:
+            logger.error(f"Graph system not available for connection {client_sid}")
             emit('chat_response', {
                 'type': 'error',
                 'content': "Chat system is not available. Please try reconnecting.",
@@ -941,16 +669,16 @@ def handle_confirm_plan(data):
                 # Create a new event loop for the thread
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                is_single_widget = data.get("is_single_widget", False)
-                # Process message with conversation manager
+                
+                # Process plan confirmation
+                from database.graph_integration import continue_graph_plan
                 loop.run_until_complete(
-                    chatbot_instance.continue_with_confirmed_plan(
+                    continue_graph_plan(
                         plan=data.get('plan', []),
                         original_query=data.get('original_query', ''),
-                        is_single_widget=is_single_widget,
-                        stream_callback=stream_callback,
                         user_id=client_sid,
-                        session_id=client_sid
+                        session_id=client_sid,
+                        stream_callback=stream_callback
                     )
                 )
             except Exception as e:
@@ -989,22 +717,105 @@ def handle_confirm_plan(data):
             'timestamp': datetime.now().isoformat()
         })
 
-@socketio.on("tool_approval_response")
-def handle_tool_approval_response(data):
-    """
-    Handle tool approval response from client.
-    
-    Args:
-        data: Dictionary containing approval response details
-    """
+@socketio.on("reject_plan")
+def handle_reject_plan(data):
+    """Handle plan rejection from client."""
     try:
         client_sid = request.sid
         
-        # Get the chatbot instance for this connection
-        chatbot_instance = get_chatbot_for_connection(client_sid)
+        if not graph_integration:
+            logger.error(f"Graph system not available for connection {client_sid}")
+            emit('chat_response', {
+                'type': 'error',
+                'content': "Chat system is not available. Please try reconnecting.",
+                'timestamp': datetime.now().isoformat()
+            })
+            return
         
-        if not chatbot_instance:
-            logger.error(f"Chatbot instance not found for connection {client_sid}")
+        # Define streaming callback for WebSocket
+        async def stream_callback(update_data):
+            """Callback function to stream responses."""
+            try:
+                socketio.emit(
+                    "chat_response",
+                    {**update_data, "timestamp": datetime.now().isoformat()},
+                    room=client_sid,
+                )
+            except Exception as e:
+                logger.error(f"Error in stream callback: {e}")
+        
+        def handle_rejection():
+            try:
+                # Create a new event loop for the thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # Process plan rejection - restart with feedback
+                original_query = data.get('original_query', '')
+                rejection_reason = data.get('rejection_reason', 'User rejected the plan')
+                
+                # Create a contextual message that preserves the original query and adds feedback
+                feedback_message = f"""The user has provided feedback on the previous plan:
+
+ORIGINAL QUERY: {original_query}
+
+USER FEEDBACK: {rejection_reason}
+
+Please create a new plan that addresses this feedback while still answering the original query. Consider the user's specific suggestions and preferences."""
+                
+                from database.graph_integration import process_graph_query
+                loop.run_until_complete(
+                    process_graph_query(
+                        query=feedback_message,
+                        user_id=client_sid,
+                        session_id=client_sid,
+                        stream_callback=stream_callback
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Error processing plan rejection for connection {client_sid}: {e}")
+                socketio.emit(
+                    'chat_response',
+                    {
+                        'type': 'error',
+                        'content': f"An error occurred while processing the rejection: {str(e)}",
+                        'timestamp': datetime.now().isoformat()
+                    },
+                    room=client_sid
+                )
+            finally:
+                loop.close()
+        
+        # Start processing in background thread
+        process_thread = threading.Thread(target=handle_rejection, daemon=True)
+        process_thread.start()
+        
+        # Send immediate acknowledgment
+        emit(
+            "chat_response",
+            {
+                "type": "status",
+                "content": "Processing plan rejection and creating new approach...",
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+        
+    except Exception as e:
+        logger.error(f"Error processing plan rejection: {e}")
+        emit('chat_response', {
+            'type': 'error',
+            'content': f"An error occurred while processing the rejection: {str(e)}",
+            'timestamp': datetime.now().isoformat()
+        })
+
+@socketio.on("tool_approval_response")
+def handle_tool_approval_response(data):
+    """Handle tool approval response from client."""
+    try:
+        client_sid = request.sid
+        
+        if not graph_integration:
+            logger.error(f"Graph system not available for connection {client_sid}")
             emit('chat_response', {
                 'type': 'error',
                 'content': "Chat system is not available. Please try reconnecting.",
@@ -1030,28 +841,26 @@ def handle_tool_approval_response(data):
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 
-                # Set the stream callback for the chatbot
-                chatbot_instance.stream_callback = stream_callback
-                
                 # Process tool approval response
+                from database.graph_integration import continue_graph_tool_approval
+                
                 # Handle both single interrupt (backward compatibility) and multiple interrupts
                 interrupt_ids = data.get('interrupt_ids', [data.get('interrupt_id', '')])
                 approval_responses = data.get('approval_responses', [data.get('approval_response', 'deny')])
                 
                 # Ensure we have matching arrays
                 if len(interrupt_ids) != len(approval_responses):
-                    # If mismatch, use the first approval response for all interrupts
                     approval_responses = [approval_responses[0] if approval_responses else 'deny'] * len(interrupt_ids)
                 
                 result = loop.run_until_complete(
-                    chatbot_instance.continue_with_tool_approval(
+                    continue_graph_tool_approval(
                         agent_name=data.get('agent_name', ''),
-                        query=data.get('query', ''),
-                        interrupt_ids=interrupt_ids,  # Changed to support multiple IDs
-                        approval_responses=approval_responses,  # Changed to support multiple responses
-                        pending_responses=data.get('pending_responses', []),
-                        remaining_plan=data.get('remaining_plan', []),
-                        original_query=data.get('original_query', '')
+                        interrupt_ids=interrupt_ids,
+                        approval_responses=approval_responses,
+                        original_query=data.get('original_query', ''),
+                        user_id=client_sid,
+                        session_id=client_sid,
+                        stream_callback=stream_callback
                     )
                 )
                 
@@ -1061,7 +870,7 @@ def handle_tool_approval_response(data):
                         "chat_response",
                         {
                             "type": "content",
-                            "content": result,
+                            "content": result.get("content", ""),
                             "timestamp": datetime.now().isoformat(),
                         },
                         room=client_sid,
@@ -1103,112 +912,15 @@ def handle_tool_approval_response(data):
             'timestamp': datetime.now().isoformat()
         })
 
-@socketio.on("build_widget")
-def handle_build_widget(data):
-    """
-    Handle widget building requests from the client.
-    
-    Args:
-        data: Dictionary containing widget specifications
-    """
-    try:
-        client_sid = request.sid
-        
-        # Get the chatbot instance for this connection
-        chatbot_instance = get_chatbot_for_connection(client_sid)
-        
-        # Check if chatbot instance exists
-        if not chatbot_instance:
-            logger.error(f"Chatbot instance not found for connection {client_sid}")
-            emit(
-                "widget_response",
-                {
-                    "status": "error",
-                    "message": "Dashboard system is not available. Please try reconnecting.",
-                    "timestamp": datetime.now().isoformat(),
-                },
-            )
-            return
-            
-        user_query = data.get("message", "").strip()
-        
-        # Define streaming callback for WebSocket
-        async def stream_callback(update_data):
-            """Callback function to stream responses."""
-            try:
-                socketio.emit(
-                    "widget_update",
-                    {**update_data, "timestamp": datetime.now().isoformat()},
-                    room=client_sid,
-                )
-            except Exception as e:
-                logger.error(f"Error in widget stream callback: {e}")
-        
-        def generate_widget():
-            try:
-                # Create a new event loop for the thread
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-                # Generate the widget
-                loop.run_until_complete(
-                    chatbot_instance.process_message_stream(user_query, stream_callback, client_sid, client_sid, is_single_widget=True)
-                )
-                
-                # Send success response
-                socketio.emit(
-                    "widget_response",
-                    {
-                        "status": "success",
-                        "timestamp": datetime.now().isoformat(),
-                    },
-                    room=client_sid,
-                )
-                
-            except Exception as e:
-                logger.error(f"Error generating widget for connection {client_sid}: {e}")
-                socketio.emit(
-                    "widget_response",
-                    {
-                        "status": "error",
-                        "message": f"Failed to generate widget: {str(e)}",
-                        "timestamp": datetime.now().isoformat(),
-                    },
-                    room=client_sid,
-                )
-            finally:
-                loop.close()
-        
-        # Start widget generation in background thread
-        widget_thread = threading.Thread(target=generate_widget, daemon=True)
-        widget_thread.start()
-        
-        # Send immediate acknowledgment
-        emit(
-            "widget_update",
-            {
-                "status": "processing",
-                "message": "Generating widget...",
-                "timestamp": datetime.now().isoformat(),
-            },
-        )
-        
-    except Exception as e:
-        logger.error(f"Error handling widget build request for connection {client_sid}: {e}")
-        emit("widget_response", {
-            "status": "error",
-            "message": f"An error occurred while building the widget: {str(e)}",
-            "timestamp": datetime.now().isoformat()
-        })
-
-
-
 if __name__ == "__main__":
-    # Start the chatbot in a separate thread
-    start_chatbot()
+    # Start the graph system
+    start_graph_system()
     
-    print(f"Starting Flask-SocketIO server with logging level: {log_level}")
+    print(f"Starting Graph-based MCP Chatbot server with logging level: {log_level}")
     print(f"Logs will be written to: {os.path.abspath('logs/backend.log')}")
     
+    # Determine if we should run in debug mode
+    debug_mode = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
+    
     # Run the Flask-SocketIO server
-    socketio.run(app, host="0.0.0.0", port=5001, debug=True, allow_unsafe_werkzeug=True)
+    socketio.run(app, host="0.0.0.0", port=5001, debug=debug_mode, allow_unsafe_werkzeug=True)

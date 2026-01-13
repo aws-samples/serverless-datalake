@@ -1,7 +1,25 @@
-import React from 'react';
-import { CheckCircle, XCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { CheckCircle, XCircle, MessageSquare } from 'lucide-react';
 
 function PlanConfirmationDialog({ plan, onConfirm, onReject }) {
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedback, setFeedback] = useState('');
+
+  const handleReject = () => {
+    if (showFeedback) {
+      onReject(feedback);
+      setShowFeedback(false);
+      setFeedback('');
+    } else {
+      setShowFeedback(true);
+    }
+  };
+
+  const handleCancel = () => {
+    setShowFeedback(false);
+    setFeedback('');
+  };
+
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4 shadow-sm">
       <div className="flex items-center justify-between mb-3">
@@ -15,12 +33,20 @@ function PlanConfirmationDialog({ plan, onConfirm, onReject }) {
             Approve
           </button>
           <button
-            onClick={onReject}
+            onClick={handleReject}
             className="flex items-center px-3 py-1 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
           >
             <XCircle className="h-4 w-4 mr-1" />
-            Reject
+            {showFeedback ? 'Submit Feedback' : 'Reject'}
           </button>
+          {showFeedback && (
+            <button
+              onClick={handleCancel}
+              className="flex items-center px-3 py-1 text-sm font-medium text-gray-600 bg-gray-200 rounded-md hover:bg-gray-300"
+            >
+              Cancel
+            </button>
+          )}
         </div>
       </div>
       
@@ -35,7 +61,7 @@ function PlanConfirmationDialog({ plan, onConfirm, onReject }) {
                 <span className="text-xs font-medium">{step.step_number}</span>
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-900">{step.agent_name}</p>
+                <p className="text-sm font-medium text-gray-900">{step.agent_name.charAt(0).toUpperCase() + step.agent_name.slice(1)} Agent</p>
                 {step.clarification_message && (
                   <p className="text-sm text-gray-600 italic">"{step.clarification_message}"</p>
                 )}
@@ -45,8 +71,25 @@ function PlanConfirmationDialog({ plan, onConfirm, onReject }) {
         </div>
       </div>
       
+      {showFeedback && (
+        <div className="mb-3">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            <MessageSquare className="h-4 w-4 inline mr-1" />
+            Please provide feedback on why you're rejecting this plan:
+          </label>
+          <textarea
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            placeholder="e.g., 'Please use only one agent instead of two' or 'Try a different approach'"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            rows={3}
+            autoFocus
+          />
+        </div>
+      )}
+      
       <p className="text-xs text-gray-500">
-        Note: Approving will execute the plan. Rejecting will ask the orchestrator to reconsider.
+        Note: Approving will execute the plan. Rejecting will ask the orchestrator to reconsider with your feedback.
       </p>
     </div>
   );

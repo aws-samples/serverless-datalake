@@ -18,16 +18,29 @@ class PromptTemplates:
             str: The verifier agent system prompt
         """
         return """
-        You are a Verifier agent, designed to check if the query is resolved.
-        You will be given the user query, the list of agents that were called, the agent responses, and the final response.
-        You will need to check if the query is resolved.
-        You will output a JSON object in the following format:
+        You are a Verifier agent, designed to check if the user query can be answered with the collected data.
+        
+        You will be given:
+        - The original user query
+        - Collected data from various specialist agents
+        
+        Your task is to determine if the collected data is sufficient to answer the user's query.
+        
+        **Output Format - MANDATORY JSON:**
         {
-            "is_sufficient": True or False,
-            "needs_clarification": True or False,
-            "clarification_message": If needs_clarification is True, you will need to return the clarification message.
+            "can_answer": "yes" or "no",
+            "tool_error": "yes" or "no",
+            "tool_name": "name of tool that had error (if tool_error is yes)",
+            "reasoning": "Brief explanation of your decision"
         }
-        - MANDATORY: You will only return a json object and nothing else.
+        
+        **Decision Criteria:**
+        - "can_answer": "yes" if the collected data sufficiently addresses the user's query
+        - "can_answer": "no" if more data is needed or the query cannot be answered
+        - "tool_error": "yes" if you detect any tool execution errors in the data
+        - "tool_error": "no" if no tool errors are detected
+        
+        MANDATORY: You will only return a valid JSON object and nothing else.
         """
     
     @staticmethod
@@ -37,6 +50,9 @@ class PromptTemplates:
         
         Args:
             available_agents: List of available agent configurations
+            max_iterations: Maximum number of iterations before seeking user clarification
+            agent_interactions_header: Optional header for agent interactions section
+            agent_interactions: Optional agent interactions content
             
         Returns:
             str: The orchestrator agent system prompt
@@ -48,7 +64,7 @@ class PromptTemplates:
         ])
         
         return f"""
-        You are a Multi-Agent Orchestrator designed to coordinate support across multiple agents.
+        You are a Multi-Agent Orchestrator designed to coordinate support across multiple specialist agents.
         
         **Available Agents:**
         {agents_info}
@@ -56,22 +72,18 @@ class PromptTemplates:
         **Your Role:**
         1. As an orchestrator analyze user queries and determine the most appropriate agents to handle them
         2. Create execution plans with ordered agent calls.
-        3. Act as verifier when requested to check if queries are resolved
+        3. MANDATORY: Response_Summarizer is the last agent to be called once we have the final_response or if we have exhausted all agents and still dont have an answer.
+        4. DashboardBuilder (Vizro MCP) Agent should be used to create interactive dashboards
         
         **Critical Decision Rules:**
         - EXHAUST ALL AGENT OPTIONS FIRST before asking for user clarification
+        - Call response_summarizer to summarize the clarification we need from the user
         - Progressive exploration: try different agents on subsequent calls
         - User clarification should be LAST RESORT only when:
           a) All relevant agents have been exhausted
           b) Multiple agents failed to provide sufficient information
           c) Query is genuinely ambiguous
           d) Need specific user preferences that no agent can determine
-        
-        **Systematic Retry Strategy:**
-        - First attempt: Try primary relevant agents
-        - Second attempt: Try alternative/secondary agents
-        - Third attempt: Combine different agents or specialized approaches
-        - Final resort: Seek user clarification with specific, targeted questions
         
         **Output Format - MANDATORY JSON Array:**
         [
@@ -90,24 +102,6 @@ class PromptTemplates:
             }}
         ]
         
-        **For Verification Role:**
-        [
-            {{
-                "agent_name": "User",
-                "can_answer": "yes|no",
-                "tool_error": "yes|no",
-                "tool_name": "ToolName (optional - only if tool_error is yes)",
-                "step_number": 1
-            }}
-        ]
-        
-        **Agent Exploration Checklist (before calling User):**
-        - [ ] Attempted all database agents that might contain relevant data?
-        - [ ] Tried agents with overlapping capabilities?
-        - [ ] Considered unconventional but potentially relevant agents?
-        - [ ] Attempted combination approaches?
-        
-        REMEMBER: Be resourceful and thorough. User clarification should demonstrate you've exhausted technical solutions.
         """
     
     @staticmethod
@@ -153,7 +147,7 @@ class PromptTemplates:
         """
     
     @staticmethod
-    def get_enhanced_query_with_context(user_query: str, agent_responses: List[Dict]) -> str:
+    def get_enhanced_query(user_query: str) -> str:
         """
         Build enhanced query prompt with context from previous agent responses.
         
@@ -164,29 +158,7 @@ class PromptTemplates:
         Returns:
             str: Enhanced query prompt with context
         """
-        if len(agent_responses) > 0:
-            context = "\n".join([
-                f"**Agent Name:{resp['agent_name']}, Response:**\n{resp['response']}"
-                for resp in agent_responses
-            ])
-            return f"""
-            You are an agent in a multi-agent system with specific tools and capabilities.
-            1. **PREVIOUS CONTEXT**: Consider these responses from previous agents: {context}.
-            2. **PRIMARY RESPONSIBILITY**: Try to answer any part of the question not answered by the previous agents using YOUR available tools.                                                
-            3. **TOOL EXPLORATION MANDATE**: 
-               - **ALWAYS attempt to use your available tools first** before determining you cannot help
-               - Your tools may contain relevant data even if not immediately obvious from the question
-               - **Think creatively** about how your tools might provide relevant information
-               - **Explore database schemas** using list tools to understand what data is available
-               - **Query systematically** to find relevant information that might answer the user's question
-            4. **DECISION PROCESS** - Follow this order:
-               a) **EXPLORE**: Use listing/discovery tools to understand what data you have access to
-               b) **INVESTIGATE**: Query relevant data sources that might contain the requested information  
-               c) **ANALYZE**: Examine the data to see if it answers any part of the user's question
-               d) **RESPOND**: Only after genuine exploration, determine if you can provide partial or complete answers
-            **Original User Query**: {user_query}"""
-        else:
-            return f"""You are an agent in a multi-agent system with specific tools and capabilities.
+        return f"""You are an agent in a multi-agent system with specific tools and capabilities.
             1. **PRIMARY RESPONSIBILITY**: Try to answer any part of the question using YOUR available tools.                                                
             2. **TOOL EXPLORATION MANDATE**: 
                - **ALWAYS attempt to use your available tools first** before determining you cannot help
@@ -236,7 +208,7 @@ def get_verifier_prompt() -> str:
     return PromptTemplates.get_verifier_agent_prompt()
 
 
-def get_orchestrator_prompt(available_agents: List[Dict[str, Any]]) -> str:
+def get_orchestrator_prompt(available_agents: List[Dict[str, Any]], max_iterations: int = 5) -> str:
     """Get the orchestrator agent prompt."""
     return PromptTemplates.get_orchestrator_agent_prompt(available_agents)
 

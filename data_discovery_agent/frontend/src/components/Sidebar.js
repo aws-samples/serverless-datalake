@@ -436,7 +436,7 @@ function Sidebar({ sidebarOpen, setSidebarOpen, windowWidth }) {
           }`}>
             
             {/* Toggle sidebar button at bottom */}
-            <div className="mt-4 flex bg-white" style={{"justify-content":"right"}}>
+            <div className="mt-4 flex bg-white" style={{"justifyContent":"right"}}>
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
                 className="p-2 rounded-lg text-detective-500 hover:bg-detective-100 hover:text-detective-700 transition-colors"
