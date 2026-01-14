@@ -107,6 +107,7 @@ class GraphMCPChatbot:
         self.original_query = None
         self.current_user_id = None
         self.current_session_id = None
+        self.approved_plan = None  # Store user-approved execution plan
         self.internal_agents = {"orchestrator", "response_summarizer", "verifier"}
         self.conversation_manager = SlidingWindowConversationManager(
     window_size=20,  # Maximum number of messages to keep
@@ -156,15 +157,25 @@ class GraphMCPChatbot:
         sessions_dir = project_root / "multiagent_sessions"
         sessions_dir.mkdir(exist_ok=True, parents=True)
         
-        session_key = f"{user_id}_{session_id}_{uuid.uuid4()}"
+        # Use user_id and session_id directly for consistent session tracking
+        session_key = f"{user_id}_{session_id}"
         return FileSessionManager(session_id=session_key, storage_dir=str(sessions_dir))
 
-    def _create_orchestrator_agent(self) -> Agent:
+    def _create_orchestrator_agent(self, with_session_manager=False) -> Agent:
         """Create the orchestrator agent that decides which specialists to call."""
         available_agents = list(self.mcp_clients.values())
         orchestrator_prompt = PromptTemplates.get_orchestrator_agent_prompt(
             available_agents
         )
+        if with_session_manager:
+            return Agent(
+                name="orchestrator",
+                session_manager=self.session_manager,
+                model=self.model,
+                system_prompt=orchestrator_prompt,
+                conversation_manager=self.conversation_manager,
+                tools=[self.get_all_available_tools]
+           )
         
         return Agent(
             name="orchestrator",
@@ -241,14 +252,31 @@ class GraphMCPChatbot:
         
         # Override the system prompt to match our graph context
         agent.system_prompt = """You are a content summarization specialist working in a multi-agent data discovery system.
-        You excel at:
+        
+        **CRITICAL RULE - NO GENERAL KNOWLEDGE:**
+        - You MUST ONLY summarize data that was actually returned by specialist agents
+        - You MUST NOT use your own general knowledge to answer questions
+        - If specialist agents found NO DATA, you must clearly state "No data available in the system"
+        - NEVER fill in gaps with information from your training data
+        - Your role is to summarize ACTUAL RESULTS, not to provide general knowledge
+        
+        **Your Responsibilities:**
         - Creating concise summaries from collected data
         - Extracting key insights from specialist agent responses
         - Organizing information clearly for end users
         - Presenting complex data analysis results simply
+        - Explaining when data is NOT available in the system
+        
+        **When Specialist Agents Return "No Data":**
+        - Clearly state that the requested information is not available in the system
+        - Explain what data sources were checked
+        - Suggest what would be needed to answer the query
+        - DO NOT provide general knowledge as a substitute
         
         You will receive collected data from specialist agents and create a comprehensive response to the user's query.
-        Be thorough but concise in your analysis. Focus on actionable insights and clear explanations."""
+        Be thorough but concise in your analysis. Focus on actionable insights and clear explanations.
+        
+        **REMEMBER**: You are a DATA SUMMARIZER, not a general knowledge assistant. Only report what the specialist agents actually found."""
         
         return agent
 
@@ -287,13 +315,9 @@ class GraphMCPChatbot:
         response_summarizer = self._create_response_summarizer_agent()
         builder.add_node(response_summarizer, "response_summarizer")
         
-        # Direct edge from orchestrator to response summarizer when ready to summarize
-        # builder.add_edge("orchestrator", "response_summarizer",
-        #                 condition=lambda state: self._should_summarize(state))
-        builder.add_edge("orchestrator", "response_summarizer")
-        # Add feedback loop: response_summarizer back to orchestrator for replanning if needed
-        # builder.add_edge("response_summarizer", "orchestrator",
-        #                 condition=lambda state: self._should_replan(state))
+        # Conditional edge from orchestrator to response summarizer when ready to summarize
+        builder.add_edge("orchestrator", "response_summarizer",
+                        condition=lambda state: self._should_summarize(state))
         
         # Set orchestrator as entry point
         builder.set_entry_point("orchestrator")
@@ -317,6 +341,11 @@ class GraphMCPChatbot:
         if not orchestrator_result:
             return False
         
+        # Check if this specialist has already been executed
+        if specialist_name in state.results:
+            logger.debug(f"⏭️ Specialist {specialist_name} already executed - skipping")
+            return False
+        
         result_text = str(orchestrator_result.result).lower()
         
         # Get the display name for this specialist (the name field from config)
@@ -336,12 +365,17 @@ class GraphMCPChatbot:
                         agent_name = item.get("agent_name", "").lower()
                         # Check both the MCP key name and the display name
                         if agent_name == specialist_name.lower() or agent_name == display_name:
+                            logger.info(f"✅ Orchestrator requested specialist: {specialist_name}")
                             return True
         except:
             pass
         
         # Fallback: check if specialist name or display name is mentioned
-        return specialist_name.lower() in result_text or display_name in result_text
+        if specialist_name.lower() in result_text or display_name in result_text:
+            logger.info(f"✅ Orchestrator mentioned specialist: {specialist_name}")
+            return True
+            
+        return False
 
     def _should_call_verifier(self, state) -> bool:
         """Determine if orchestrator decided to call the verifier."""
@@ -378,11 +412,18 @@ class GraphMCPChatbot:
         
         result_text = str(orchestrator_result.result).lower()
         
-        # Check if orchestrator mentions response_summarizer or summarize
-        if "response_summarizer" in result_text or "summarize" in result_text:
+        # Safety check: Count how many specialist agents have been executed
+        specialist_execution_count = sum(
+            1 for node_name in state.results.keys() 
+            if node_name in self.mcp_clients
+        )
+        
+        # Force summarization after 3 specialist executions to prevent endless loops
+        if specialist_execution_count >= 3:
+            logger.warning(f"⚠️ {specialist_execution_count} specialists executed - forcing Response_Summarizer to prevent loop")
             return True
         
-        # Check for JSON format with agent_name
+        # Look for JSON format with agent_name (same pattern as _should_call_specialist)
         try:
             if "[" in result_text and "]" in result_text:
                 start_bracket = result_text.split("[")[1]
@@ -390,20 +431,31 @@ class GraphMCPChatbot:
                 json_response = json.loads("[" + json_part + "]")
                 
                 for item in json_response:
-                    if isinstance(item, dict) and item.get("agent_name", "").lower() == "response_summarizer":
-                        return True
-        except:
+                    if isinstance(item, dict):
+                        agent_name = item.get("agent_name", "").lower()
+                        # Check for response_summarizer in the orchestrator's plan
+                        if agent_name == "response_summarizer":
+                            logger.info("✅ Orchestrator plan includes Response_Summarizer")
+                            return True
+        except Exception as e:
+            logger.debug(f"Error parsing orchestrator response for summarizer: {e}")
             pass
         
-        # Also check if we have collected data and orchestrator suggests completion
-        specialist_results = [
-            result for node_name, result in state.results.items() 
-            if node_name in self.mcp_clients or node_name == "verifier"
-        ]
-        
-        if specialist_results and any(keyword in result_text for keyword in ["complete", "finished", "done", "enough"]):
-            logger.info("✅ Orchestrator indicated completion with data - proceeding to response summarizer")
+        # Fallback: check if response_summarizer is mentioned in text
+        if "response_summarizer" in result_text or "response summarizer" in result_text:
+            logger.info("✅ Orchestrator explicitly mentioned Response_Summarizer")
             return True
+        
+        # Check if any specialist returned "no data" or similar - should trigger summarization
+        for node_name, result in state.results.items():
+            if node_name in self.mcp_clients:
+                result_content = str(result.result).lower()
+                if any(phrase in result_content for phrase in [
+                    "no data", "data not available", "not found", "does not exist",
+                    "cannot provide", "unable to", "no relevant data"
+                ]):
+                    logger.info(f"✅ Specialist {node_name} returned 'no data' - proceeding to Response_Summarizer")
+                    return True
             
         return False
 
@@ -425,6 +477,7 @@ class GraphMCPChatbot:
             # Reset state
             self.collected_datasets = []
             self.total_datasets = 0
+            self.approved_plan = None  # Clear any previous approved plan
             
             logger.info(f"Processing message with graph execution for user {user_id}, session {session_id}")
             
@@ -438,7 +491,7 @@ class GraphMCPChatbot:
             # Check if human confirmation is required
             if self.config.processing.require_human_confirmation:
                 # First, get the orchestrator's plan
-                orchestrator = self._create_orchestrator_agent()
+                orchestrator = self._create_orchestrator_agent(with_session_manager=True)
                 orchestrator_response = orchestrator(message)
                 
                 # Parse and present plan for confirmation
@@ -455,19 +508,20 @@ class GraphMCPChatbot:
                     for step in plan:
                         agent_name = step.get('agent_name', 'Unknown')
                         step_number = step.get('step_number', '?')
-                        plan_text += f"**Step {step_number}:** {agent_name} agent\n"
+                        query = step.get("query", "Unknown")
+                        plan_text += f"**Step {step_number}:** {agent_name} agent:**\n"
                         if 'clarification_message' in step:
                             plan_text += f"  - {step['clarification_message']}\n"
                         plan_text += "\n"
                     
-                    plan_text += f"**Query:** \"{message}\"\n\n"
+                    plan_text += f"**Query:** \"{query}\"\n\n"
                     plan_text += "Please review this plan and choose to approve or reject it."
                     
                     await self._stream_update("confirmation_needed", 
                         content=plan_text,
                         extra={
                             "plan": plan,
-                            "original_query": message
+                            "original_query": query
                         }, 
                         is_partial=False
                     )
@@ -475,7 +529,7 @@ class GraphMCPChatbot:
                     return {
                         "type": "confirmation_needed",
                         "plan": plan,
-                        "original_query": message
+                        "original_query": query
                     }
                 else:
                     logger.warning("No plan extracted from orchestrator response, proceeding without confirmation")
@@ -503,22 +557,39 @@ class GraphMCPChatbot:
             self.current_user_id = user_id
             self.current_session_id = session_id
             
+            # Store the approved plan so orchestrator can use it
+            self.approved_plan = plan
+            
             # Create session manager and response summarizer
             self.session_manager = self._create_session_manager(user_id, session_id)
             self.response_summarizer = ResponseSummarizer(model_id=self.config.model.cheaper_model_id)
             
             logger.info(f"Executing confirmed plan for user {user_id}, session {session_id}")
+            logger.info(f"Approved plan: {plan}")
             
             # Build and execute the graph
             await self._stream_update("thinking", "Executing confirmed plan...")
             self.graph = self._build_graph()
             
-            result = await self._execute_graph_with_streaming(original_query)
+            # Create a message that includes the approved plan
+            enhanced_query = f"""USER APPROVED PLAN - Execute this exact plan:
+{json.dumps(plan, indent=2)}
+Query by User: {original_query}
+
+IMPORTANT: Execute the approved plan above. Do not recompute or change the plan."""
+            
+            result = await self._execute_graph_with_streaming(enhanced_query)
+            
+            # Clear the approved plan after execution
+            self.approved_plan = None
+            
             return result
             
         except Exception as e:
             logger.error(f"Error executing confirmed plan: {e}")
             await self._stream_update("error", f"Error executing plan: {str(e)}")
+            # Clear the approved plan even on error
+            self.approved_plan = None
             return {"type": ResponseType.ERROR.value, "content": f"Error: {str(e)}"}
 
     async def _execute_graph_with_streaming(self, query: str):
