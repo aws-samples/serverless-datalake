@@ -15,3 +15,12 @@ data_discovery_agent/frontend/build/index.html
 data_discovery_agent/frontend/build/index.html
 /data_discovery_agent/user_sessions
 /data_discovery_agent/multiagent_sessions
+data_discovery_agent/backend/database/agentcore/.bedrock_agentcore.yaml
+data_discovery_agent/backend/database/agentcore/.dockerignore
+data_discovery_agent/backend/database/agentcore/Dockerfile
+data_discovery_agent/backend/database/agentcore/deploy_agent_no_outbound_auth.py
+data_discovery_agent/backend/database/agentcore/deployment_info.json
+data_discovery_agent/frontend/build/index.html
+infrastructure_lookup_agent/03_infrastructure_lookup_agent.ipynb
+infrastructure_lookup_agent/requirements.txt
+infrastructure_lookup_agent/utils/agentcore_helper.py
