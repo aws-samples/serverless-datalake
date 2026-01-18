@@ -343,11 +343,15 @@ async def execute_athena_query(
         if not athena_client:
             return "❌ Athena client not initialized"
         
-        # Use default output location if not provided
+        # Use default output location from environment or fail
         output_location = os.getenv('DEFAULT_S3_OUTPUT_LOCATION', '')
-        workgroup = os.getenv("WORKGROUP", '')    
         if not output_location:
             return "❌ No output location provided and no default configured. Please provide an S3 output location (e.g., s3://bucket/path/) by setting DEFAULT_S3_OUTPUT_LOCATION environment variable"
+        
+        # Use workgroup from environment variable if set, otherwise use the parameter
+        workgroup_to_use = os.getenv("WORKGROUP", workgroup)
+        print(f"📍 Using workgroup: {workgroup_to_use}")
+        logger.info(f"Using workgroup: {workgroup_to_use}")
         
         # Security check - only allow SELECT queries
         query_upper = query.strip().upper()
@@ -370,7 +374,7 @@ async def execute_athena_query(
             ResultConfiguration={
                 'OutputLocation': output_location
             },
-            WorkGroup=workgroup
+            WorkGroup=workgroup_to_use
         )
         
         query_execution_id = response['QueryExecutionId']
