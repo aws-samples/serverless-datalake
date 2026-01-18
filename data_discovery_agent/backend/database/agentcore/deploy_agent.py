@@ -517,7 +517,7 @@ def verify_gateway_targets(gateway_id):
         return []
 
 
-def display_architecture_diagram():
+def display_architecture_diagram(non_interactive=False):
     """Display the architecture diagram of what we're building."""
     diagram = """
 ╔══════════════════════════════════════════════════════════════════════╗
@@ -606,11 +606,20 @@ Step 10: Verify Deployment
 
 """
     print(diagram)
-    input("Press Enter to start the deployment...")
+    if not non_interactive:
+        input("Press Enter to start the deployment...")
+    else:
+        print("🚀 Starting automated deployment...\n")
 
 
-def wait_for_user(step_name):
+def wait_for_user(step_name, non_interactive=False):
     """Pause and wait for user input before continuing."""
+    if non_interactive:
+        print(f"\n{'─' * 70}")
+        print(f"▶️  Next step: {step_name}")
+        print(f"{'─' * 70}\n")
+        return
+    
     print(f"\n{'─' * 70}")
     input(f"⏸️  Next step: {step_name}\n   Press Enter to continue to next step...")
     print(f"{'─' * 70}\n")
@@ -618,53 +627,79 @@ def wait_for_user(step_name):
 
 def main():
     """Main deployment function."""
+    import argparse
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Deploy MCP Servers to AgentCore Gateway')
+    parser.add_argument('--non-interactive', action='store_true', 
+                       help='Run in non-interactive mode without pausing for user input')
+    args = parser.parse_args()
+    
+    non_interactive = args.non_interactive
+    
     print("=" * 70)
     print("🚀 MCP Servers to AgentCore Gateway - Deployment")
+    if non_interactive:
+        print("   Mode: Non-Interactive (Automated)")
+    else:
+        print("   Mode: Interactive (Step-by-Step)")
     print("=" * 70)
     
     # Display architecture diagram
-    display_architecture_diagram()
+    display_architecture_diagram(non_interactive)
     
     # Step 1: Load configuration
     config = load_config()
     print(f"\n{'─' * 70}")
     print('Step Completed: Configuration loaded')
-    wait_for_user("Create Gateway IAM role")
+    wait_for_user("Create Gateway IAM role", non_interactive)
     
     # Step 2: Create Gateway IAM role
     gateway_role_arn = create_gateway_iam_role()
     print(f"\n{'─' * 70}")
     print("Step Completed: Gateway IAM role created")
-    wait_for_user("Create Runtime IAM role")
+    wait_for_user("Create Runtime IAM role", non_interactive)
     
     # Step 3: Create Runtime IAM role (with Athena and S3Vectors permissions)
     runtime_role_arn = create_runtime_execution_role()
     print(f"\n{'─' * 70}")
     print("Step Completed: Runtime IAM role created")
-    wait_for_user("Create Gateway Cognito pool")
+    wait_for_user("Create Gateway Cognito pool", non_interactive)
     
     # Step 4: Create Cognito pools
     gw_cognito_config = create_cognito_pool_for_gateway()
     print(f"\n{'─' * 70}")
     print("Step Completed: Gateway Cognito pool created")
-    wait_for_user("Create Runtime Cognito pool")
+    wait_for_user("Create Runtime Cognito pool", non_interactive)
     
     runtime_cognito_config = create_cognito_pool_for_runtime()
     print(f"\n{'─' * 70}")
     print("Step Completed: Runtime Cognito pool created")
-    wait_for_user("Create AgentCore Gateway")
+    wait_for_user("Create AgentCore Gateway", non_interactive)
     
     # Step 5: Create AgentCore Gateway
     gateway_info = create_agentcore_gateway(gateway_role_arn, gw_cognito_config)
     print(f"\n{'─' * 70}")
     print("Step Completed: AgentCore Gateway created")
-    wait_for_user("Deploy Athena MCP Server to Runtime")
+    wait_for_user("Deploy Athena MCP Server to Runtime", non_interactive)
     
     # Step 6: Deploy Athena MCP Server to Runtime
+    # Check environment variables first, then fall back to config file
     athena_env_vars = {
-        "DEFAULT_S3_OUTPUT_LOCATION": config.get("DEFAULT_S3_OUTPUT_LOCATION", ""),
-        "WORKGROUP":config.get("WORKGROUP", "")
+        "DEFAULT_S3_OUTPUT_LOCATION": os.environ.get("DEFAULT_S3_OUTPUT_LOCATION") or config.get("DEFAULT_S3_OUTPUT_LOCATION", ""),
+        "WORKGROUP": os.environ.get("WORKGROUP") or config.get("WORKGROUP", "")
     }
+    
+    # Log which source was used for configuration
+    if os.environ.get("DEFAULT_S3_OUTPUT_LOCATION"):
+        print(f"   Using DEFAULT_S3_OUTPUT_LOCATION from environment: {athena_env_vars['DEFAULT_S3_OUTPUT_LOCATION']}")
+    elif config.get("DEFAULT_S3_OUTPUT_LOCATION"):
+        print(f"   Using DEFAULT_S3_OUTPUT_LOCATION from config file: {athena_env_vars['DEFAULT_S3_OUTPUT_LOCATION']}")
+    
+    if os.environ.get("WORKGROUP"):
+        print(f"   Using WORKGROUP from environment: {athena_env_vars['WORKGROUP']}")
+    elif config.get("WORKGROUP"):
+        print(f"   Using WORKGROUP from config file: {athena_env_vars['WORKGROUP']}")
     athena_agent = deploy_mcp_server_to_runtime(
         mcp_file="athena_mcp.py",
         agent_name="athena_mcp_server",
@@ -675,7 +710,7 @@ def main():
     )
     print(f"\n{'─' * 70}")
     print("Step Completed: Athena MCP Server deployed to Runtime")
-    wait_for_user("Deploy S3Vectors MCP Server to Runtime")
+    wait_for_user("Deploy S3Vectors MCP Server to Runtime", non_interactive)
     
     # Step 7: Deploy S3Vectors MCP Server to Runtime
     s3vectors_agent = deploy_mcp_server_to_runtime(
@@ -687,13 +722,13 @@ def main():
     )
     print(f"\n{'─' * 70}")
     print("Step Completed: S3Vectors MCP Server deployed to Runtime")
-    wait_for_user("Create OAuth credential provider")
+    wait_for_user("Create OAuth credential provider", non_interactive)
     
     # Step 8: Create OAuth credential provider
     credential_provider_arn = create_oauth_credential_provider(runtime_cognito_config)
     print(f"\n{'─' * 70}")
     print("Step Completed: OAuth credential provider created")
-    wait_for_user("Create Athena Gateway target")
+    wait_for_user("Create Athena Gateway target", non_interactive)
     
     # Step 9: Create Gateway targets for both MCP servers
     athena_target_id = create_gateway_target(
@@ -705,7 +740,7 @@ def main():
     )
     print(f"\n{'─' * 70}")
     print("Step Completed: Athena Gateway target created")
-    wait_for_user("Create S3Vectors Gateway target")
+    wait_for_user("Create S3Vectors Gateway target", non_interactive)
     
     s3vectors_target_id = create_gateway_target(
         gateway_id=gateway_info["gateway_id"],
@@ -716,11 +751,12 @@ def main():
     )
     print(f"\n{'─' * 70}")
     print("Step Completed: S3Vectors Gateway target created")
-    wait_for_user("Verify Gateway targets")
+    wait_for_user("Verify Gateway targets", non_interactive)
     
     # Step 10: Verify Gateway targets
     targets = verify_gateway_targets(gateway_info["gateway_id"])
-    wait_for_user("Gateway targets verified")
+    if not non_interactive:
+        wait_for_user("Gateway targets verified", non_interactive)
     
     # Summary
     print("\n" + "=" * 70)
