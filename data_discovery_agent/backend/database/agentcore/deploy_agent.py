@@ -764,8 +764,10 @@ def main():
     print("=" * 70)
     print(f"\n📋 Essential Deployment Information:")
     
-    # Calculate token URL from discovery URL
-    token_url = gw_cognito_config['discovery_url'].replace('/.well-known/openid-configuration', '/oauth2/token')
+    # Calculate token URL using user pool ID and region
+    # Format: https://{user_pool_id}.auth.{region}.amazoncognito.com/oauth2/token
+    user_pool_id = gw_cognito_config['user_pool_id']
+    token_url = f"https://{user_pool_id}.auth.{REGION}.amazoncognito.com/oauth2/token"
     
     print(f"\nGateway ID: {gateway_info['gateway_id']}")
     print(f"Gateway URL: {gateway_info['gateway_url']}")
