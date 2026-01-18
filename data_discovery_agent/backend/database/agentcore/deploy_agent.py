@@ -59,21 +59,8 @@ def create_runtime_execution_role():
         try:
             response = iam_client.get_role(RoleName=role_name)
             role_arn = response['Role']['Arn']
-            print(f"⚠️  Role '{role_name}' already exists - updating policies...")
-            
-            # Delete all existing inline policies
-            try:
-                policies = iam_client.list_role_policies(RoleName=role_name, MaxItems=100)
-                for policy_name in policies.get('PolicyNames', []):
-                    iam_client.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
-                    print(f"   Deleted old policy: {policy_name}")
-            except Exception as e:
-                print(f"   Warning: Could not delete old policies: {e}")
-            
-            # Recreate with updated permissions
-            agentcore_runtime_iam_role = utils.create_agentcore_runtime_role_with_data_permissions("mcp-data")
-            role_arn = agentcore_runtime_iam_role['Role']['Arn']
-            print(f"✅ Runtime IAM role updated: {role_arn}")
+            print(f"✅ Role '{role_name}' already exists - using existing role")
+            print(f"   Role ARN: {role_arn}")
             return role_arn
             
         except iam_client.exceptions.NoSuchEntityException:
@@ -100,21 +87,8 @@ def create_gateway_iam_role():
         try:
             response = iam_client.get_role(RoleName=role_name)
             role_arn = response['Role']['Arn']
-            print(f"⚠️  Role '{role_name}' already exists - updating policies...")
-            
-            # Delete all existing inline policies
-            try:
-                policies = iam_client.list_role_policies(RoleName=role_name, MaxItems=100)
-                for policy_name in policies.get('PolicyNames', []):
-                    iam_client.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
-                    print(f"   Deleted old policy: {policy_name}")
-            except Exception as e:
-                print(f"   Warning: Could not delete old policies: {e}")
-            
-            # Recreate with updated permissions
-            agentcore_gateway_iam_role = utils.create_agentcore_gateway_role(role_name)
-            role_arn = agentcore_gateway_iam_role['Role']['Arn']
-            print(f"✅ Gateway IAM role updated: {role_arn}")
+            print(f"✅ Role '{role_name}' already exists - using existing role")
+            print(f"   Role ARN: {role_arn}")
             return role_arn
             
         except iam_client.exceptions.NoSuchEntityException:
