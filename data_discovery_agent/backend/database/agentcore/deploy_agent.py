@@ -762,39 +762,16 @@ def main():
     print("\n" + "=" * 70)
     print("✅ Deployment Complete!")
     print("=" * 70)
-    print(f"\n📊 Deployment Summary:")
-    print(f"\n🌐 Gateway:")
-    print(f"   - Gateway ID: {gateway_info['gateway_id']}")
-    print(f"   - Gateway URL: {gateway_info['gateway_url']}")
-    print(f"   - Gateway Role ARN: {gateway_role_arn}")
+    print(f"\n📋 Essential Deployment Information:")
     
-    print(f"\n⚙️  Runtime:")
-    print(f"   - Runtime Role ARN: {runtime_role_arn}")
-    print(f"   - Permissions: Athena, S3, S3Vectors, Glue, Bedrock")
+    # Calculate token URL from discovery URL
+    token_url = gw_cognito_config['discovery_url'].replace('/.well-known/openid-configuration', '/oauth2/token')
     
-    print(f"\n🔑 Gateway Authentication (Inbound):")
-    print(f"   - Client ID: {gw_cognito_config['client_id']}")
-    print(f"   - Discovery URL: {gw_cognito_config['discovery_url']}")
-    
-    print(f"\n🚀 Athena MCP Server:")
-    print(f"   - Agent ARN: {athena_agent['agent_arn']}")
-    print(f"   - Agent ID: {athena_agent['agent_id']}")
-    print(f"   - Target ID: {athena_target_id}")
-    
-    print(f"\n🚀 S3Vectors MCP Server:")
-    print(f"   - Agent ARN: {s3vectors_agent['agent_arn']}")
-    print(f"   - Agent ID: {s3vectors_agent['agent_id']}")
-    print(f"   - Target ID: {s3vectors_target_id}")
-    
-    print(f"\n� Runtime nAuthentication (Outbound):")
-    print(f"   - Credential Provider ARN: {credential_provider_arn}")
-    
-    print(f"\n🎯 Next Steps:")
-    print(f"   1. Test the Gateway by invoking: {gateway_info['gateway_url']}")
-    print(f"   2. Use Gateway Client ID for authentication: {gw_cognito_config['client_id']}")
-    print(f"   3. Both Athena and S3Vectors MCP servers are available through the Gateway")
-    print(f"   4. Gateway connects to Runtime with OAuth authentication")
-    print(f"   5. Run test_gateway.py to verify the deployment")
+    print(f"\nGateway ID: {gateway_info['gateway_id']}")
+    print(f"Gateway URL: {gateway_info['gateway_url']}")
+    print(f"Cognito Token URL: {token_url}")
+    print(f"Client ID: {gw_cognito_config['client_id']}")
+    print(f"Client Secret: {gw_cognito_config['client_secret']}")
     print("\n" + "=" * 70)
     
     # Save deployment info to file
