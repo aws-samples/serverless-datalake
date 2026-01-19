@@ -143,8 +143,7 @@ export const InsightDisplay: React.FC<InsightDisplayProps> = ({
         return (
           <SpaceBetween size="m">
             {value.map((item, index) => (
-              <Box key={index} padding={{ top: 's', bottom: 's', left: 's' }} 
-                   style={{ borderLeft: '3px solid #e9ebed', backgroundColor: '#fafafa' }}>
+              <Box key={index} padding={{ top: 's', bottom: 's', left: 's' }}>
                 {renderValue(item, true)}
               </Box>
             ))}
