@@ -8,6 +8,7 @@ import {
   ExpandableSection,
   Alert,
   Badge,
+  ColumnLayout,
 } from '@cloudscape-design/components';
 import type { InsightResult } from '../../types/insight';
 
@@ -112,7 +113,7 @@ export const InsightDisplay: React.FC<InsightDisplayProps> = ({
     return new Date(timestamp).toLocaleString();
   };
 
-  const renderValue = (value: any): React.ReactNode => {
+  const renderValue = (value: any, isArrayItem: boolean = false): React.ReactNode => {
     if (value === null || value === undefined) {
       return <Box color="text-body-secondary">null</Box>;
     }
@@ -134,14 +135,32 @@ export const InsightDisplay: React.FC<InsightDisplayProps> = ({
         return <Box color="text-body-secondary">Empty array</Box>;
       }
       
+      // Check if array contains objects
+      const hasObjects = value.some(item => typeof item === 'object' && item !== null && !Array.isArray(item));
+      
+      if (hasObjects) {
+        // Render objects in array without bullets, just stacked
+        return (
+          <SpaceBetween size="m">
+            {value.map((item, index) => (
+              <Box key={index} padding={{ top: 's', bottom: 's', left: 's' }} 
+                   style={{ borderLeft: '3px solid #e9ebed', backgroundColor: '#fafafa' }}>
+                {renderValue(item, true)}
+              </Box>
+            ))}
+          </SpaceBetween>
+        );
+      }
+      
+      // For simple values, use bullet list
       return (
-        <SpaceBetween size="xs">
+        <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
           {value.map((item, index) => (
-            <Box key={index} margin={{ left: 's' }}>
-              • {renderValue(item)}
-            </Box>
+            <li key={index} style={{ marginBottom: '4px' }}>
+              {String(item)}
+            </li>
           ))}
-        </SpaceBetween>
+        </ul>
       );
     }
 
@@ -149,10 +168,12 @@ export const InsightDisplay: React.FC<InsightDisplayProps> = ({
       return (
         <SpaceBetween size="s">
           {Object.entries(value).map(([key, val]) => (
-            <Box key={key} margin={{ left: 's' }}>
+            <Box key={key}>
               <SpaceBetween size="xxs">
                 <Box variant="awsui-key-label">{key}</Box>
-                {renderValue(val)}
+                <Box margin={{ left: isArrayItem ? 'n' : 's' }}>
+                  {renderValue(val)}
+                </Box>
               </SpaceBetween>
             </Box>
           ))}
@@ -209,7 +230,7 @@ export const InsightDisplay: React.FC<InsightDisplayProps> = ({
         </SpaceBetween>
 
         {/* Insights Content */}
-        <SpaceBetween size="m">
+        <ColumnLayout columns={3} variant="text-grid">
           {Object.entries(insightResult.insights).map(([key, value]) => (
             <ExpandableSection
               key={key}
@@ -220,7 +241,7 @@ export const InsightDisplay: React.FC<InsightDisplayProps> = ({
               {renderValue(value)}
             </ExpandableSection>
           ))}
-        </SpaceBetween>
+        </ColumnLayout>
 
         {copySuccess && (
           <Alert type="success" dismissible onDismiss={() => setCopySuccess(false)}>
