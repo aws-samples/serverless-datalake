@@ -766,8 +766,10 @@ def main():
     
     # Calculate token URL using user pool ID and region
     # Format: https://{user_pool_id}.auth.{region}.amazoncognito.com/oauth2/token
+    # Note: User pool ID must be lowercase in the URL (e.g., us-east-1_SOLY14oIA -> us-east-1soly14oia)
     user_pool_id = gw_cognito_config['user_pool_id']
-    token_url = f"https://{user_pool_id}.auth.{REGION}.amazoncognito.com/oauth2/token"
+    user_pool_id_lowercase = user_pool_id.lower().replace('_', '')
+    token_url = f"https://{user_pool_id_lowercase}.auth.{REGION}.amazoncognito.com/oauth2/token"
     
     print(f"\nGateway ID: {gateway_info['gateway_id']}")
     print(f"Gateway URL: {gateway_info['gateway_url']}")
