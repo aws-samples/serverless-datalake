@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Container,
   Header,
@@ -9,6 +9,7 @@ import {
   Alert,
   Badge,
   ColumnLayout,
+  Spinner,
 } from '@cloudscape-design/components';
 import type { InsightResult } from '../../types/insight';
 
@@ -22,13 +23,33 @@ export const InsightDisplay: React.FC<InsightDisplayProps> = ({
   loading = false,
 }) => {
   const [copySuccess, setCopySuccess] = useState(false);
+  const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+
+  const loadingMessages = [
+    'Fetching answers...',
+    'Fetching summaries...',
+    'Fetching keypoints...',
+  ];
+
+  useEffect(() => {
+    if (loading) {
+      const interval = setInterval(() => {
+        setLoadingMessageIndex((prev) => (prev + 1) % loadingMessages.length);
+      }, 2000); // Rotate every 2 seconds
+
+      return () => clearInterval(interval);
+    } else {
+      setLoadingMessageIndex(0);
+    }
+  }, [loading]);
 
   if (loading) {
     return (
       <Container>
         <Box textAlign="center" padding="xxl">
-          <SpaceBetween size="m">
-            <Box variant="h3">Extracting insights...</Box>
+          <SpaceBetween size="l" alignItems="center">
+            <Spinner size="large" />
+            <Box variant="h3">{loadingMessages[loadingMessageIndex]}</Box>
             <Box variant="p" color="text-body-secondary">
               This may take up to 30 seconds
             </Box>
@@ -235,7 +256,7 @@ export const InsightDisplay: React.FC<InsightDisplayProps> = ({
               key={key}
               headerText={key}
               variant="container"
-              defaultExpanded={true}
+              defaultExpanded={key.toLowerCase() === 'answer'}
             >
               {renderValue(value)}
             </ExpandableSection>
