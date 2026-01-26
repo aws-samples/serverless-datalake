@@ -91,8 +91,6 @@ class DynamoDBStack(BaseDocumentInsightStack):
             "point_in_time_recovery": True,
             # Removal policy based on environment
             "removal_policy": self.removal_policy,
-            # Encryption at rest with AWS managed keys
-            "encryption": dynamodb.TableEncryption.AWS_MANAGED,
             # Stream specification for change data capture (optional)
             "stream": dynamodb.StreamViewType.NEW_AND_OLD_IMAGES if self.env_name == "prod" else None,
         }
