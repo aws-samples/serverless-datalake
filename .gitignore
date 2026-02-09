@@ -25,4 +25,3 @@ infrastructure_lookup_agent/03_infrastructure_lookup_agent.ipynb
 infrastructure_lookup_agent/requirements.txt
 infrastructure_lookup_agent/utils/agentcore_helper.py
 agentcore/create_workshop_notebook.py
-agentcore/ac_utils.py
