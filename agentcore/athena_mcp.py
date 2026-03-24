@@ -322,7 +322,7 @@ async def execute_athena_query(
     database_name: str,
     catalog_name: str = "AwsDataCatalog",
     workgroup: str = "primary",
-    limit: Optional[int] = 100
+    limit: int = 100
 ) -> str:
     """
     Execute a query in AWS Athena and return the results.
