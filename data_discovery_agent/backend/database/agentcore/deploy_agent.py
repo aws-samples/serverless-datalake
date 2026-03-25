@@ -25,6 +25,45 @@ logging.getLogger("strands").setLevel(logging.INFO)
 os.environ['AWS_DEFAULT_REGION'] = os.environ.get('AWS_REGION', 'us-east-1')
 REGION = os.environ['AWS_DEFAULT_REGION']
 
+# ============================================================================
+# GLOBAL CONFIGURATION - Edit these names to customize your deployment
+# ============================================================================
+
+# IAM Role Names
+RUNTIME_ROLE_NAME = "agentcore-runtime-mcp-data-role"
+GATEWAY_ROLE_NAME = "ac-gw-mcp-role"
+
+# Gateway
+GATEWAY_NAME = "ac-gateway-mcp-server"
+GATEWAY_DESCRIPTION = "AgentCore Gateway with MCP Server targets (Athena + S3Vectors)"
+
+# Cognito - Gateway (Inbound Auth)
+GW_USER_POOL_NAME = "sample-agentcore-gateway-pool"
+GW_RESOURCE_SERVER_ID = "sample-agentcore-gateway-id"
+GW_RESOURCE_SERVER_NAME = "sample-agentcore-gateway-name"
+GW_CLIENT_NAME = "sample-agentcore-gateway-client"
+
+# Cognito - Runtime (Outbound Auth)
+RT_USER_POOL_NAME = "sample-agentcore-runtime-pool"
+RT_RESOURCE_SERVER_ID = "sample-agentcore-runtime-id"
+RT_RESOURCE_SERVER_NAME = "sample-agentcore-runtime-name"
+RT_CLIENT_NAME = "sample-agentcore-runtime-client"
+
+# MCP Server Deployments
+ATHENA_MCP_FILE = "athena_mcp.py"
+ATHENA_AGENT_NAME = "athena_mcp_server"
+S3VECTORS_MCP_FILE = "s3vectors_mcp.py"
+S3VECTORS_AGENT_NAME = "s3vectors_mcp_server"
+
+# Gateway Targets
+ATHENA_TARGET_NAME = "athena-mcp-target"
+S3VECTORS_TARGET_NAME = "s3vectors-mcp-target"
+
+# OAuth Credential Provider
+OAUTH_CREDENTIAL_PROVIDER_NAME = "ac-gateway-mcp-server-identity"
+
+# ============================================================================
+
 
 def load_config():
     """Load configuration from config.json file."""
@@ -50,35 +89,34 @@ def load_config():
 def create_runtime_execution_role():
     """Create or update IAM role for AgentCore Runtime with Athena and S3Vectors permissions."""
     print("\n🔐 Creating/Updating IAM role for AgentCore Runtime...")
-    
-    role_name = "agentcore-runtime-mcp-data-role"
+
     iam_client = boto3.client('iam')
-    
+
     try:
         # Try to get existing role first
         try:
-            response = iam_client.get_role(RoleName=role_name)
+            response = iam_client.get_role(RoleName=RUNTIME_ROLE_NAME)
             role_arn = response['Role']['Arn']
-            print(f"⚠️  Role '{role_name}' already exists - updating policies...")
-            
+            print(f"⚠️  Role '{RUNTIME_ROLE_NAME}' already exists - updating policies...")
+
             # Delete all existing inline policies
             try:
-                policies = iam_client.list_role_policies(RoleName=role_name, MaxItems=100)
+                policies = iam_client.list_role_policies(RoleName=RUNTIME_ROLE_NAME, MaxItems=100)
                 for policy_name in policies.get('PolicyNames', []):
-                    iam_client.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
+                    iam_client.delete_role_policy(RoleName=RUNTIME_ROLE_NAME, PolicyName=policy_name)
                     print(f"   Deleted old policy: {policy_name}")
             except Exception as e:
                 print(f"   Warning: Could not delete old policies: {e}")
-            
+
             # Recreate with updated permissions
             agentcore_runtime_iam_role = utils.create_agentcore_runtime_role_with_data_permissions("mcp-data")
             role_arn = agentcore_runtime_iam_role['Role']['Arn']
             print(f"✅ Runtime IAM role updated: {role_arn}")
             return role_arn
-            
+
         except iam_client.exceptions.NoSuchEntityException:
             # Role doesn't exist, create it
-            print(f"   Role '{role_name}' not found, creating new one...")
+            print(f"   Role '{RUNTIME_ROLE_NAME}' not found, creating new one...")
             agentcore_runtime_iam_role = utils.create_agentcore_runtime_role_with_data_permissions("mcp-data")
             role_arn = agentcore_runtime_iam_role['Role']['Arn']
             print(f"✅ Runtime IAM role created: {role_arn}")
@@ -92,35 +130,34 @@ def create_gateway_iam_role():
     """Create or update IAM role for the Gateway to assume."""
     print("\n🔐 Creating/Updating IAM role for AgentCore Gateway...")
     
-    role_name = "ac-gw-mcp-role"
     iam_client = boto3.client('iam')
-    
+
     try:
         # Try to get existing role first
         try:
-            response = iam_client.get_role(RoleName=role_name)
+            response = iam_client.get_role(RoleName=GATEWAY_ROLE_NAME)
             role_arn = response['Role']['Arn']
-            print(f"⚠️  Role '{role_name}' already exists - updating policies...")
-            
+            print(f"⚠️  Role '{GATEWAY_ROLE_NAME}' already exists - updating policies...")
+
             # Delete all existing inline policies
             try:
-                policies = iam_client.list_role_policies(RoleName=role_name, MaxItems=100)
+                policies = iam_client.list_role_policies(RoleName=GATEWAY_ROLE_NAME, MaxItems=100)
                 for policy_name in policies.get('PolicyNames', []):
-                    iam_client.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
+                    iam_client.delete_role_policy(RoleName=GATEWAY_ROLE_NAME, PolicyName=policy_name)
                     print(f"   Deleted old policy: {policy_name}")
             except Exception as e:
                 print(f"   Warning: Could not delete old policies: {e}")
-            
+
             # Recreate with updated permissions
-            agentcore_gateway_iam_role = utils.create_agentcore_gateway_role(role_name)
+            agentcore_gateway_iam_role = utils.create_agentcore_gateway_role(GATEWAY_ROLE_NAME)
             role_arn = agentcore_gateway_iam_role['Role']['Arn']
             print(f"✅ Gateway IAM role updated: {role_arn}")
             return role_arn
-            
+
         except iam_client.exceptions.NoSuchEntityException:
             # Role doesn't exist, create it
-            print(f"   Role '{role_name}' not found, creating new one...")
-            agentcore_gateway_iam_role = utils.create_agentcore_gateway_role(role_name)
+            print(f"   Role '{GATEWAY_ROLE_NAME}' not found, creating new one...")
+            agentcore_gateway_iam_role = utils.create_agentcore_gateway_role(GATEWAY_ROLE_NAME)
             role_arn = agentcore_gateway_iam_role['Role']['Arn']
             print(f"✅ Gateway IAM role created: {role_arn}")
             return role_arn
@@ -133,36 +170,32 @@ def create_cognito_pool_for_gateway():
     """Create or get existing Amazon Cognito Pool for inbound authorization to Gateway."""
     print("\n🔑 Creating/Getting Cognito Pool for Gateway (Inbound Auth)...")
     
-    USER_POOL_NAME = "sample-agentcore-gateway-pool"
-    RESOURCE_SERVER_ID = "sample-agentcore-gateway-id"
-    RESOURCE_SERVER_NAME = "sample-agentcore-gateway-name"
-    CLIENT_NAME = "sample-agentcore-gateway-client"
     SCOPES = [
         {
             "ScopeName": "invoke",
             "ScopeDescription": "Scope for invoking the agentcore gateway"
         },
     ]
-    
-    scope_names = [f"{RESOURCE_SERVER_ID}/{scope['ScopeName']}" for scope in SCOPES]
+
+    scope_names = [f"{GW_RESOURCE_SERVER_ID}/{scope['ScopeName']}" for scope in SCOPES]
     scope_string = " ".join(scope_names)
-    
+
     cognito = boto3.client("cognito-idp", region_name=REGION)
-    
+
     try:
         # Create or retrieve user pool (utils function already handles this)
-        gw_user_pool_id = utils.get_or_create_user_pool(cognito, USER_POOL_NAME)
+        gw_user_pool_id = utils.get_or_create_user_pool(cognito, GW_USER_POOL_NAME)
         print(f"   User Pool ID: {gw_user_pool_id}")
-        
+
         # Create or retrieve resource server (utils function already handles this)
         utils.get_or_create_resource_server(
-            cognito, gw_user_pool_id, RESOURCE_SERVER_ID, RESOURCE_SERVER_NAME, SCOPES
+            cognito, gw_user_pool_id, GW_RESOURCE_SERVER_ID, GW_RESOURCE_SERVER_NAME, SCOPES
         )
         print("   Resource server ensured")
-        
+
         # Create or retrieve M2M client (utils function already handles this)
         gw_client_id, gw_client_secret = utils.get_or_create_m2m_client(
-            cognito, gw_user_pool_id, CLIENT_NAME, RESOURCE_SERVER_ID, scope_names
+            cognito, gw_user_pool_id, GW_CLIENT_NAME, GW_RESOURCE_SERVER_ID, scope_names
         )
         
         # Get discovery URL
@@ -189,36 +222,32 @@ def create_cognito_pool_for_runtime():
     """Create or get existing Amazon Cognito Pool for inbound authorization to Runtime (outbound for Gateway)."""
     print("\n🔑 Creating/Getting Cognito Pool for Runtime (Outbound Auth for Gateway)...")
     
-    USER_POOL_NAME = "sample-agentcore-runtime-pool"
-    RESOURCE_SERVER_ID = "sample-agentcore-runtime-id"
-    RESOURCE_SERVER_NAME = "sample-agentcore-runtime-name"
-    CLIENT_NAME = "sample-agentcore-runtime-client"
     SCOPES = [
         {
             "ScopeName": "invoke",
             "ScopeDescription": "Scope for invoking the agentcore runtime"
         },
     ]
-    
-    scope_names = [f"{RESOURCE_SERVER_ID}/{scope['ScopeName']}" for scope in SCOPES]
+
+    scope_names = [f"{RT_RESOURCE_SERVER_ID}/{scope['ScopeName']}" for scope in SCOPES]
     scope_string = " ".join(scope_names)
-    
+
     cognito = boto3.client("cognito-idp", region_name=REGION)
-    
+
     try:
         # Create or retrieve user pool (utils function already handles this)
-        runtime_user_pool_id = utils.get_or_create_user_pool(cognito, USER_POOL_NAME)
+        runtime_user_pool_id = utils.get_or_create_user_pool(cognito, RT_USER_POOL_NAME)
         print(f"   User Pool ID: {runtime_user_pool_id}")
-        
+
         # Create or retrieve resource server (utils function already handles this)
         utils.get_or_create_resource_server(
-            cognito, runtime_user_pool_id, RESOURCE_SERVER_ID, RESOURCE_SERVER_NAME, SCOPES
+            cognito, runtime_user_pool_id, RT_RESOURCE_SERVER_ID, RT_RESOURCE_SERVER_NAME, SCOPES
         )
         print("   Resource server ensured")
-        
+
         # Create or retrieve M2M client (utils function already handles this)
         runtime_client_id, runtime_client_secret = utils.get_or_create_m2m_client(
-            cognito, runtime_user_pool_id, CLIENT_NAME, RESOURCE_SERVER_ID, scope_names
+            cognito, runtime_user_pool_id, RT_CLIENT_NAME, RT_RESOURCE_SERVER_ID, scope_names
         )
         
         # Get discovery URL
@@ -245,18 +274,16 @@ def create_agentcore_gateway(gateway_role_arn, gw_cognito_config):
     """Create the AgentCore Gateway or get existing one."""
     print("\n🌐 Creating/Getting AgentCore Gateway...")
     
-    gateway_name = 'ac-gateway-mcp-server'
-    
     try:
         gateway_client = boto3.client('bedrock-agentcore-control', region_name=REGION)
-        
+
         # Try to list existing gateways to see if one with this name exists
         try:
             list_response = gateway_client.list_gateways()
             existing_gateways = list_response.get('items', [])  # API returns 'items' not 'gateways'
-            
+
             for gateway in existing_gateways:
-                if gateway.get('name') == gateway_name:
+                if gateway.get('name') == GATEWAY_NAME:
                     gateway_id = gateway.get('gatewayId')
                     # Get full gateway details to get the URL
                     gateway_details = gateway_client.get_gateway(gatewayIdentifier=gateway_id)
@@ -272,7 +299,7 @@ def create_agentcore_gateway(gateway_role_arn, gw_cognito_config):
             print(f"   Could not list gateways: {list_error}")
         
         # Gateway doesn't exist, create it
-        print(f"   Gateway '{gateway_name}' not found, creating new one...")
+        print(f"   Gateway '{GATEWAY_NAME}' not found, creating new one...")
         
         auth_config = {
             "customJWTAuthorizer": {
@@ -282,7 +309,7 @@ def create_agentcore_gateway(gateway_role_arn, gw_cognito_config):
         }
         
         create_response = gateway_client.create_gateway(
-            name=gateway_name,
+            name=GATEWAY_NAME,
             roleArn=gateway_role_arn,
             protocolType='MCP',
             protocolConfiguration={
@@ -293,7 +320,7 @@ def create_agentcore_gateway(gateway_role_arn, gw_cognito_config):
             },
             authorizerType='CUSTOM_JWT',
             authorizerConfiguration=auth_config,
-            description='AgentCore Gateway with MCP Server targets (Athena + S3Vectors)'
+            description=GATEWAY_DESCRIPTION
         )
         
         gateway_id = create_response["gatewayId"]
@@ -415,7 +442,7 @@ def create_oauth_credential_provider(runtime_cognito_config):
         identity_client = boto3.client('bedrock-agentcore-control', region_name=REGION)
         
         cognito_provider = identity_client.create_oauth2_credential_provider(
-            name="ac-gateway-mcp-server-identity",
+            name=OAUTH_CREDENTIAL_PROVIDER_NAME,
             credentialProviderVendor="CustomOauth2",
             oauth2ProviderConfigInput={
                 'customOauth2ProviderConfig': {
@@ -701,8 +728,8 @@ def main():
     elif config.get("WORKGROUP"):
         print(f"   Using WORKGROUP from config file: {athena_env_vars['WORKGROUP']}")
     athena_agent = deploy_mcp_server_to_runtime(
-        mcp_file="athena_mcp.py",
-        agent_name="athena_mcp_server",
+        mcp_file=ATHENA_MCP_FILE,
+        agent_name=ATHENA_AGENT_NAME,
         runtime_role_arn=runtime_role_arn,
         runtime_cognito_config=runtime_cognito_config,
         config=config,
@@ -714,8 +741,8 @@ def main():
     
     # Step 7: Deploy S3Vectors MCP Server to Runtime
     s3vectors_agent = deploy_mcp_server_to_runtime(
-        mcp_file="s3vectors_mcp.py",
-        agent_name="s3vectors_mcp_server",
+        mcp_file=S3VECTORS_MCP_FILE,
+        agent_name=S3VECTORS_AGENT_NAME,
         runtime_role_arn=runtime_role_arn,
         runtime_cognito_config=runtime_cognito_config,
         config=config
@@ -736,7 +763,7 @@ def main():
         agent_url=athena_agent["agent_url"],
         credential_provider_arn=credential_provider_arn,
         runtime_scope_string=runtime_cognito_config["scope_string"],
-        target_name="athena-mcp-target"
+        target_name=ATHENA_TARGET_NAME
     )
     print(f"\n{'─' * 70}")
     print("Step Completed: Athena Gateway target created")
@@ -747,7 +774,7 @@ def main():
         agent_url=s3vectors_agent["agent_url"],
         credential_provider_arn=credential_provider_arn,
         runtime_scope_string=runtime_cognito_config["scope_string"],
-        target_name="s3vectors-mcp-target"
+        target_name=S3VECTORS_TARGET_NAME
     )
     print(f"\n{'─' * 70}")
     print("Step Completed: S3Vectors Gateway target created")
