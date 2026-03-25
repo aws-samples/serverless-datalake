@@ -62,14 +62,17 @@ async def test_athena_connection() -> str:
     logger.info("TEST_ATHENA_CONNECTION called")
     try:
         if not athena_client:
+            logger.warning("TEST_ATHENA_CONNECTION: Athena client not initialized")
             print("❌ Athena client not initialized")
             return "❌ Athena client not initialized"
-        
+
         # Test connection by listing workgroups
         response = athena_client.list_work_groups(MaxResults=1)
+        logger.info("TEST_ATHENA_CONNECTION: Connection successful")
         print("✅ Athena connection successful")
         return "✅ Athena connection successful"
     except Exception as e:
+        logger.error(f"TEST_ATHENA_CONNECTION: Connection error: {e}")
         print(f"❌ Athena connection error: {str(e)}")
         return f"❌ Athena connection error: {str(e)}"
 
@@ -95,10 +98,11 @@ async def get_athena_config() -> str:
             }
         }
         
+        logger.info("GET_ATHENA_CONFIG: Configuration retrieved successfully")
         print(f"✅ Configuration retrieved successfully")
         return json.dumps(config, indent=2)
     except Exception as e:
-        logger.error(f"Error getting configuration: {e}")
+        logger.error(f"GET_ATHENA_CONFIG: Error getting configuration: {e}")
         print(f"❌ Error getting configuration: {str(e)}")
         return f"❌ Error getting configuration: {str(e)}"
 
@@ -115,11 +119,12 @@ async def list_athena_data_catalogs() -> str:
     logger.info("LIST_ATHENA_DATA_CATALOGS called")
     try:
         if not athena_client:
+            logger.warning("LIST_ATHENA_DATA_CATALOGS: Athena client not initialized")
             return "❌ Athena client not initialized"
-        
+
         response = athena_client.list_data_catalogs()
         catalogs = response.get('DataCatalogsSummary', [])
-        
+
         result = {
             "catalogs": [
                 {
@@ -130,11 +135,12 @@ async def list_athena_data_catalogs() -> str:
             ],
             "count": len(catalogs)
         }
-        
+
+        logger.info(f"LIST_ATHENA_DATA_CATALOGS: Found {len(catalogs)} data catalogs")
         print(f"✅ Found {len(catalogs)} data catalogs")
         return json.dumps(result, indent=2)
     except Exception as e:
-        logger.error(f"Error listing data catalogs: {e}")
+        logger.error(f"LIST_ATHENA_DATA_CATALOGS: Error listing data catalogs: {e}")
         print(f"❌ Error listing data catalogs: {str(e)}")
         return f"❌ Error listing data catalogs: {str(e)}"
 
@@ -154,11 +160,12 @@ async def list_athena_databases(catalog_name: str = "AwsDataCatalog") -> str:
     logger.info(f"LIST_ATHENA_DATABASES called with catalog: {catalog_name}")
     try:
         if not athena_client:
+            logger.warning("LIST_ATHENA_DATABASES: Athena client not initialized")
             return "❌ Athena client not initialized"
-        
+
         response = athena_client.list_databases(CatalogName=catalog_name)
         databases = response.get('DatabaseList', [])
-        
+
         result = {
             "catalog": catalog_name,
             "databases": [
@@ -171,11 +178,12 @@ async def list_athena_databases(catalog_name: str = "AwsDataCatalog") -> str:
             ],
             "count": len(databases)
         }
-        
+
+        logger.info(f"LIST_ATHENA_DATABASES: Found {len(databases)} databases in catalog '{catalog_name}'")
         print(f"✅ Found {len(databases)} databases in catalog '{catalog_name}'")
         return json.dumps(result, indent=2)
     except Exception as e:
-        logger.error(f"Error listing databases: {e}")
+        logger.error(f"LIST_ATHENA_DATABASES: Error listing databases: {e}")
         print(f"❌ Error listing databases: {str(e)}")
         return f"❌ Error listing databases: {str(e)}"
 
@@ -196,6 +204,7 @@ async def list_athena_tables(database_name: str, catalog_name: str = "AwsDataCat
     logger.info(f"LIST_ATHENA_TABLES called for database: {database_name}, catalog: {catalog_name}")
     try:
         if not athena_client:
+            logger.warning("LIST_ATHENA_TABLES: Athena client not initialized")
             return "❌ Athena client not initialized"
         
         response = athena_client.list_table_metadata(
@@ -237,10 +246,11 @@ async def list_athena_tables(database_name: str, catalog_name: str = "AwsDataCat
             }
             result["tables"].append(table_info)
         
+        logger.info(f"LIST_ATHENA_TABLES: Found {len(tables)} tables in database '{database_name}'")
         print(f"✅ Found {len(tables)} tables in database '{database_name}'")
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
-        logger.error(f"Error listing tables: {e}")
+        logger.error(f"LIST_ATHENA_TABLES: Error listing tables: {e}")
         print(f"❌ Error listing tables: {str(e)}")
         return f"❌ Error listing tables: {str(e)}"
 
@@ -266,8 +276,9 @@ async def get_athena_table_metadata(
     logger.info(f"GET_ATHENA_TABLE_METADATA called for table: {table_name}, database: {database_name}")
     try:
         if not athena_client:
+            logger.warning("GET_ATHENA_TABLE_METADATA: Athena client not initialized")
             return "❌ Athena client not initialized"
-        
+
         response = athena_client.get_table_metadata(
             CatalogName=catalog_name,
             DatabaseName=database_name,
@@ -308,10 +319,11 @@ async def get_athena_table_metadata(
             }
         }
         
+        logger.info(f"GET_ATHENA_TABLE_METADATA: Retrieved metadata for table '{table_name}'")
         print(f"✅ Retrieved metadata for table '{table_name}'")
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
-        logger.error(f"Error getting table metadata: {e}")
+        logger.error(f"GET_ATHENA_TABLE_METADATA: Error getting table metadata for '{table_name}': {e}")
         print(f"❌ Error getting table metadata for '{table_name}': {str(e)}")
         return f"❌ Error getting table metadata for '{table_name}': {str(e)}"
 
@@ -341,21 +353,24 @@ async def execute_athena_query(
     logger.info(f"EXECUTE_ATHENA_QUERY called with query length: {len(query)}")
     try:
         if not athena_client:
+            logger.warning("EXECUTE_ATHENA_QUERY: Athena client not initialized")
             return "❌ Athena client not initialized"
-        
+
         # Use default output location from environment or fail
         output_location = os.getenv('DEFAULT_S3_OUTPUT_LOCATION', '')
         if not output_location:
+            logger.error("EXECUTE_ATHENA_QUERY: No output location configured")
             return "❌ No output location provided and no default configured. Please provide an S3 output location (e.g., s3://bucket/path/) by setting DEFAULT_S3_OUTPUT_LOCATION environment variable"
-        
+
         # Use workgroup from environment variable if set, otherwise use the parameter
         workgroup_to_use = os.getenv("WORKGROUP", workgroup)
         print(f"📍 Using workgroup: {workgroup_to_use}")
-        logger.info(f"Using workgroup: {workgroup_to_use}")
-        
+        logger.info(f"EXECUTE_ATHENA_QUERY: Using workgroup: {workgroup_to_use}")
+
         # Security check - only allow SELECT queries
         query_upper = query.strip().upper()
         if not query_upper.startswith("SELECT") and not query_upper.startswith("SHOW") and not query_upper.startswith("DESCRIBE"):
+            logger.warning(f"EXECUTE_ATHENA_QUERY: Rejected non-SELECT query")
             print("❌ Only SELECT, SHOW, and DESCRIBE queries are allowed for security reasons")
             return "❌ Only SELECT, SHOW, and DESCRIBE queries are allowed for security reasons"
         
@@ -378,6 +393,7 @@ async def execute_athena_query(
         )
         
         query_execution_id = response['QueryExecutionId']
+        logger.info(f"EXECUTE_ATHENA_QUERY: Query started with execution ID: {query_execution_id}")
         print(f"🚀 Query started with execution ID: {query_execution_id}")
         
         # Wait for query to complete
@@ -394,6 +410,7 @@ async def execute_athena_query(
                 break
             elif status in ['FAILED', 'CANCELLED']:
                 error_msg = execution_response['QueryExecution']['Status'].get('StateChangeReason', 'Unknown error')
+                logger.error(f"EXECUTE_ATHENA_QUERY: Query {query_execution_id} failed: {error_msg}")
                 print(f"❌ Query failed: {error_msg}")
                 return f"❌ Query failed: {error_msg}"
             
@@ -401,6 +418,7 @@ async def execute_athena_query(
             wait_time += 2
         
         if wait_time >= max_wait_time:
+            logger.error(f"EXECUTE_ATHENA_QUERY: Query {query_execution_id} timed out after {max_wait_time}s")
             print("❌ Query timed out")
             return "❌ Query execution timed out"
         
@@ -415,6 +433,7 @@ async def execute_athena_query(
         rows = result_set.get('Rows', [])
         
         if not rows:
+            logger.info(f"EXECUTE_ATHENA_QUERY: Query {query_execution_id} returned no results")
             print("✅ Query executed successfully but returned no results")
             return json.dumps({
                 "query": query,
@@ -446,11 +465,12 @@ async def execute_athena_query(
             "results": data_rows
         }
         
+        logger.info(f"EXECUTE_ATHENA_QUERY: Query {query_execution_id} returned {len(data_rows)} rows")
         print(f"✅ Query executed successfully, returned {len(data_rows)} rows")
         return json.dumps(result, indent=2, default=str)
-        
+
     except Exception as e:
-        logger.error(f"Error executing query: {e}")
+        logger.error(f"EXECUTE_ATHENA_QUERY: Error executing query: {e}")
         print(f"❌ Query execution error: {str(e)}")
         return f"❌ Query execution error: {str(e)}"
 
@@ -470,6 +490,7 @@ async def get_athena_query_execution(query_execution_id: str) -> str:
     logger.info(f"GET_ATHENA_QUERY_EXECUTION called for ID: {query_execution_id}")
     try:
         if not athena_client:
+            logger.warning("GET_ATHENA_QUERY_EXECUTION: Athena client not initialized")
             return "❌ Athena client not initialized"
         
         response = athena_client.get_query_execution(
@@ -500,10 +521,11 @@ async def get_athena_query_execution(query_execution_id: str) -> str:
             "workgroup": query_execution.get('WorkGroup')
         }
         
+        logger.info(f"GET_ATHENA_QUERY_EXECUTION: Retrieved details for ID: {query_execution_id}")
         print(f"✅ Retrieved query execution details for ID: {query_execution_id}")
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
-        logger.error(f"Error getting query execution: {e}")
+        logger.error(f"GET_ATHENA_QUERY_EXECUTION: Error getting query execution: {e}")
         print(f"❌ Error getting query execution: {str(e)}")
         return f"❌ Error getting query execution: {str(e)}"
 
@@ -524,6 +546,7 @@ async def list_athena_query_executions(workgroup: str = "primary", max_results: 
     logger.info(f"LIST_ATHENA_QUERY_EXECUTIONS called for workgroup: {workgroup}")
     try:
         if not athena_client:
+            logger.warning("LIST_ATHENA_QUERY_EXECUTIONS: Athena client not initialized")
             return "❌ Athena client not initialized"
         
         response = athena_client.list_query_executions(
@@ -564,10 +587,11 @@ async def list_athena_query_executions(workgroup: str = "primary", max_results: 
             "count": len(executions)
         }
         
+        logger.info(f"LIST_ATHENA_QUERY_EXECUTIONS: Found {len(executions)} executions in workgroup '{workgroup}'")
         print(f"✅ Found {len(executions)} query executions in workgroup '{workgroup}'")
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
-        logger.error(f"Error listing query executions: {e}")
+        logger.error(f"LIST_ATHENA_QUERY_EXECUTIONS: Error listing query executions: {e}")
         print(f"❌ Error listing query executions: {str(e)}")
         return f"❌ Error listing query executions: {str(e)}"
 
@@ -587,6 +611,7 @@ async def get_athena_database_summary(catalog_name: str = "AwsDataCatalog") -> s
     logger.info(f"GET_ATHENA_DATABASE_SUMMARY called for catalog: {catalog_name}")
     try:
         if not athena_client:
+            logger.warning("GET_ATHENA_DATABASE_SUMMARY: Athena client not initialized")
             return "❌ Athena client not initialized"
         
         # Get all databases
@@ -638,10 +663,11 @@ async def get_athena_database_summary(catalog_name: str = "AwsDataCatalog") -> s
             
             summary["databases"].append(db_info)
         
+        logger.info(f"GET_ATHENA_DATABASE_SUMMARY: Generated summary for catalog '{catalog_name}' with {len(databases)} databases and {summary['total_tables']} total tables")
         print(f"✅ Generated summary for catalog '{catalog_name}' with {len(databases)} databases and {summary['total_tables']} total tables")
         return json.dumps(summary, indent=2, default=str)
     except Exception as e:
-        logger.error(f"Error getting database summary: {e}")
+        logger.error(f"GET_ATHENA_DATABASE_SUMMARY: Error getting database summary: {e}")
         print(f"❌ Error getting database summary: {str(e)}")
         return f"❌ Error getting database summary: {str(e)}"
 
