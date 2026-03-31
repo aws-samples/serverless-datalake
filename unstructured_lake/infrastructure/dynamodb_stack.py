@@ -88,7 +88,9 @@ class DynamoDBStack(BaseDocumentInsightStack):
             # TTL attribute for automatic expiration
             "time_to_live_attribute": "expiresAt",
             # Point-in-time recovery for data protection
-            "point_in_time_recovery": True,
+            "point_in_time_recovery_specification": dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=True
+            ),
             # Removal policy based on environment
             "removal_policy": self.removal_policy,
             # Stream specification for change data capture (optional)

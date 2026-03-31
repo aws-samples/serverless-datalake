@@ -1,0 +1,135 @@
+version: 0.2
+
+# BuildSpec for building and deploying the React UI to S3 + CloudFront
+# This buildspec builds the React application, syncs to S3, and invalidates CloudFront
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+    commands:
+      - echo "Installing build dependencies..."
+      - npm --version
+      - node --version
+
+  pre_build:
+    commands:
+      - echo "Build started on `date`"
+      - echo "Building React UI for S3 + CloudFront deployment"
+      - echo "Project name - $PROJECT_NAME"
+      - echo "Environment - $ENV_NAME"
+      - echo "AWS Region - $AWS_REGION"
+      - echo "UI Bucket - $UI_BUCKET_NAME"
+      - echo "Distribution ID - $DISTRIBUTION_ID"
+
+  build:
+    commands:
+      - echo "========================================="
+      - echo "Installing jq for configuration generation..."
+      - echo "========================================="
+      - sudo apt-get update -qq
+      - sudo apt-get install -y -qq jq
+
+      - echo "========================================="
+      - echo "Creating environment configuration..."
+      - echo "========================================="
+
+      # Navigate to frontend directory
+      - cd frontend
+
+      # Create config directory and remove existing config files
+      - mkdir -p src/config
+      - rm -f src/config/config.json
+
+      # Create config.json using jq with all required environment variables
+      - echo "Generating config.json with environment variables..."
+      - |
+        jq -n \
+          --arg region "$AWS_REGION" \
+          --arg userPoolId "$USER_POOL_ID" \
+          --arg clientId "$USER_POOL_CLIENT_ID" \
+          --arg apiUrl "$REST_API_URL" \
+          --arg websocketUrl "$WEBSOCKET_URL" \
+          '{
+            region: $region,
+            userPoolId: $userPoolId,
+            clientId: $clientId,
+            apiUrl: $apiUrl,
+            websocketUrl: $websocketUrl
+          }' > src/config/config.json
+
+      - echo "Generated config.json:"
+      - cat src/config/config.json
+
+      - echo "========================================="
+      - echo "Building React application..."
+      - echo "========================================="
+
+      # Install dependencies
+      - echo "Installing npm dependencies..."
+      - npm cache clean --force
+      - npm config set registry https://registry.npmjs.org/
+      - |
+        if ! npm ci --verbose --no-audit --no-fund; then
+          echo "npm ci failed, trying with legacy peer deps..."
+          if ! npm ci --verbose --no-audit --no-fund --legacy-peer-deps; then
+            echo "npm ci with legacy-peer-deps failed, trying npm install as fallback..."
+            rm -rf node_modules package-lock.json
+            npm install --no-audit --no-fund --legacy-peer-deps
+          fi
+        fi
+
+      # Build React application
+      - echo "Building React app with Vite..."
+      - npm run build
+
+      # Verify build output
+      - echo "Build output size:"
+      - du -sh dist
+      - ls -la dist
+
+  post_build:
+    commands:
+      - echo "========================================="
+      - echo "Deploying to S3..."
+      - echo "========================================="
+
+      # Sync build output to S3
+      - aws s3 sync dist/ s3://$UI_BUCKET_NAME/ --delete
+
+      - echo "========================================="
+      - echo "Invalidating CloudFront cache..."
+      - echo "========================================="
+
+      # Create CloudFront invalidation
+      - |
+        INVALIDATION_ID=$(aws cloudfront create-invalidation \
+          --distribution-id $DISTRIBUTION_ID \
+          --paths "/*" \
+          --query 'Invalidation.Id' \
+          --output text)
+      - echo "CloudFront invalidation created: $INVALIDATION_ID"
+
+      - echo "========================================="
+      - echo "Build completed on `date`"
+      - echo "========================================="
+
+      # Output deployment information
+      - cd $CODEBUILD_SRC_DIR
+      - |
+        echo "{
+          \"ui_bucket\": \"$UI_BUCKET_NAME\",
+          \"distribution_id\": \"$DISTRIBUTION_ID\",
+          \"invalidation_id\": \"$INVALIDATION_ID\",
+          \"build_timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+        }" > deployment_info.json
+      - cat deployment_info.json
+
+artifacts:
+  files:
+    - deployment_info.json
+  name: ui-deployment-artifacts
+
+cache:
+  paths:
+    - 'frontend/node_modules/**/*'

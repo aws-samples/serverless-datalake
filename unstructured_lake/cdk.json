@@ -1,5 +1,5 @@
 {
-  "app": "python3 app.py",
+  "app": "JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 python3 app.py",
   "watch": {
     "include": [
       "**"
@@ -76,10 +76,7 @@
       "max_document_size_mb": 100,
       "api_throttle_rate": 1000,
       "api_throttle_burst": 2000,
-      "apprunner_cpu": "2048",
-      "apprunner_memory": "4096",
-      "apprunner_min_instances": 1,
-      "apprunner_max_instances": 10,
+      "s3_ui_bucket": "doc-ui-dev",
       "cognito_user_pool_name": "doc-insight-users-dev",
       "cognito_client_name": "doc-insight-client-dev",
       "cognito_mfa_enabled": false,
@@ -114,10 +111,7 @@
       "max_document_size_mb": 100,
       "api_throttle_rate": 5000,
       "api_throttle_burst": 10000,
-      "apprunner_cpu": "4096",
-      "apprunner_memory": "8192",
-      "apprunner_min_instances": 2,
-      "apprunner_max_instances": 25,
+      "s3_ui_bucket": "doc-ui-prd",
       "cognito_user_pool_name": "doc-insight-users-prod",
       "cognito_client_name": "doc-insight-client-prod",
       "cognito_mfa_enabled": true,
