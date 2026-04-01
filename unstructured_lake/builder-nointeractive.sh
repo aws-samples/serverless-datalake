@@ -184,7 +184,7 @@ cdk deploy --context env=$infra_env \
   DocumentInsightCognito${infra_env^}Stack \
   DocumentInsightS3${infra_env^}Stack \
   DocumentInsightDynamoDB${infra_env^}Stack \
-  DocumentInsightWebSocket${infra_env^}Stack \
+  DocumentInsightProcessingStatus${infra_env^}Stack \
   DocumentInsightLambda${infra_env^}Stack \
   DocumentInsightApiGateway${infra_env^}Stack \
   --require-approval never --outputs-file core-outputs.json
@@ -193,19 +193,6 @@ if [ $? -eq 0 ]; then
     echo "✓ Core infrastructure stacks deployed successfully"
 else
     echo "✗ Core infrastructure deployment failed"
-    exit 1
-fi
-
-echo "--- CDK deploy ECR stack ---"
-# Deploy ECR stack separately
-cdk deploy --context env=$infra_env \
-  DocumentInsightECR${infra_env^}Stack \
-  --require-approval never --outputs-file ecr-outputs.json
-
-if [ $? -eq 0 ]; then
-    echo "✓ ECR stack deployed successfully"
-else
-    echo "✗ ECR stack deployment failed"
     exit 1
 fi
 
@@ -315,265 +302,124 @@ else
     echo "⚠ Warning: core-outputs.json not found, skipping S3 event notification configuration"
 fi
 
-echo "--- Building and pushing frontend Docker image via CodeBuild ---"
-if [ -f "ecr-outputs.json" ]; then
-    # Merge core and ECR outputs for configuration extraction
-    echo "Merging core and ECR outputs for UI build configuration..."
-    jq -s 'add' core-outputs.json ecr-outputs.json > ui-build-config.json
-    
-    # Get UI build project name from ECR stack outputs
-    UI_BUILD_PROJECT=$(cat ecr-outputs.json | grep -o '"UIBuildProjectName": "[^"]*"' | cut -d'"' -f4 | head -1)
-    
-    if [ -n "$UI_BUILD_PROJECT" ]; then
-        echo "UI Build Project: $UI_BUILD_PROJECT"
-        
-        # Extract configuration values from merged outputs
-        USER_POOL_ID=$(cat ui-build-config.json | grep -o '"UserPoolId": "[^"]*"' | cut -d'"' -f4 | head -1)
-        USER_POOL_CLIENT_ID=$(cat ui-build-config.json | grep -o '"UserPoolClientId": "[^"]*"' | cut -d'"' -f4 | head -1)
-        REST_API_URL=$(cat ui-build-config.json | grep -o '"RestApiUrl": "[^"]*"' | cut -d'"' -f4 | head -1)
-        WEBSOCKET_URL=$(cat ui-build-config.json | grep -o '"WebSocketApiUrl": "[^"]*"' | cut -d'"' -f4 | head -1)
-        
-        echo "Configuration for UI build:"
-        echo "  User Pool ID: $USER_POOL_ID"
-        echo "  Client ID: $USER_POOL_CLIENT_ID"
-        echo "  REST API URL: $REST_API_URL"
-        echo "  WebSocket URL: $WEBSOCKET_URL"
-        
-        # Debug: Show all available outputs
-        echo "Debug - All available outputs:"
-        cat ui-build-config.json | jq '.'
-        
-        # Validate required configuration
-        if [ -z "$USER_POOL_ID" ] || [ -z "$USER_POOL_CLIENT_ID" ] || [ -z "$REST_API_URL" ] || [ -z "$WEBSOCKET_URL" ]; then
-            echo "✗ Missing required configuration values for UI build"
-            echo "Missing values:"
-            [ -z "$USER_POOL_ID" ] && echo "  - USER_POOL_ID is empty"
-            [ -z "$USER_POOL_CLIENT_ID" ] && echo "  - USER_POOL_CLIENT_ID is empty"
-            [ -z "$REST_API_URL" ] && echo "  - REST_API_URL is empty"
-            [ -z "$WEBSOCKET_URL" ] && echo "  - WEBSOCKET_URL is empty"
-            echo "Available output keys:"
-            cat ui-build-config.json | jq 'keys'
-            exit 1
+echo ""
+echo "=========================================="
+echo "Deploying CloudFront + S3 Hosting"
+echo "=========================================="
+echo ""
+
+echo "--- CDK deploy CloudFront stack ---"
+cdk deploy --context env=$infra_env \
+  DocumentInsightCloudFront${infra_env^}Stack \
+  --require-approval never --outputs-file cloudfront-outputs.json
+
+if [ $? -eq 0 ]; then
+    echo "✓ CloudFront stack deployed successfully"
+else
+    echo "✗ CloudFront stack deployment failed"
+    exit 1
+fi
+
+echo "--- Building and deploying frontend via CodeBuild ---"
+# Merge core and CloudFront outputs
+jq -s 'add' core-outputs.json cloudfront-outputs.json > ui-build-config.json
+
+# Get UI build project name from CloudFront stack outputs
+UI_BUILD_PROJECT=$(cat cloudfront-outputs.json | grep -o '"UIBuildProjectName": "[^"]*"' | cut -d'"' -f4 | head -1)
+
+if [ -n "$UI_BUILD_PROJECT" ]; then
+    echo "UI Build Project: $UI_BUILD_PROJECT"
+
+    # Extract configuration values
+    USER_POOL_ID=$(cat ui-build-config.json | grep -o '"UserPoolId": "[^"]*"' | cut -d'"' -f4 | head -1)
+    USER_POOL_CLIENT_ID=$(cat ui-build-config.json | grep -o '"UserPoolClientId": "[^"]*"' | cut -d'"' -f4 | head -1)
+    REST_API_URL=$(cat ui-build-config.json | grep -o '"RestApiUrl": "[^"]*"' | cut -d'"' -f4 | head -1)
+    WEBSOCKET_URL=$(cat ui-build-config.json | grep -o '"WebSocketApiUrl": "[^"]*"' | cut -d'"' -f4 | head -1)
+
+    echo "Configuration for UI build:"
+    echo "  User Pool ID: $USER_POOL_ID"
+    echo "  Client ID: $USER_POOL_CLIENT_ID"
+    echo "  REST API URL: $REST_API_URL"
+    echo "  WebSocket URL: $WEBSOCKET_URL"
+
+    # Validate required configuration
+    if [ -z "$USER_POOL_ID" ] || [ -z "$USER_POOL_CLIENT_ID" ] || [ -z "$REST_API_URL" ] || [ -z "$WEBSOCKET_URL" ]; then
+        echo "✗ Missing required configuration values for UI build"
+        [ -z "$USER_POOL_ID" ] && echo "  - USER_POOL_ID is empty"
+        [ -z "$USER_POOL_CLIENT_ID" ] && echo "  - USER_POOL_CLIENT_ID is empty"
+        [ -z "$REST_API_URL" ] && echo "  - REST_API_URL is empty"
+        [ -z "$WEBSOCKET_URL" ] && echo "  - WEBSOCKET_URL is empty"
+        exit 1
+    fi
+
+    # Trigger UI build via CodeBuild
+    echo "Starting UI build via CodeBuild..."
+    ENV_VARS_OVERRIDE="[
+      {\"name\": \"USER_POOL_ID\", \"value\": \"$USER_POOL_ID\"},
+      {\"name\": \"USER_POOL_CLIENT_ID\", \"value\": \"$USER_POOL_CLIENT_ID\"},
+      {\"name\": \"REST_API_URL\", \"value\": \"$REST_API_URL\"},
+      {\"name\": \"WEBSOCKET_URL\", \"value\": \"$WEBSOCKET_URL\"}
+    ]"
+
+    UI_BUILD_ID=$(aws codebuild start-build \
+      --project-name "$UI_BUILD_PROJECT" \
+      --environment-variables-override "$ENV_VARS_OVERRIDE" \
+      --query 'build.id' --output text)
+
+    if [ "$?" != "0" ] || [ -z "$UI_BUILD_ID" ]; then
+        echo "✗ Could not start UI build project"
+        exit 1
+    fi
+
+    echo "✓ UI build started successfully"
+    echo "Build ID: $UI_BUILD_ID"
+
+    # Monitor the UI build
+    echo "Monitoring UI build progress..."
+    ui_build_failed=false
+
+    while true; do
+        build_info=$(aws codebuild batch-get-builds --ids $UI_BUILD_ID 2>/dev/null)
+
+        if [ $? -ne 0 ]; then
+            echo "⚠ Warning: Could not get UI build status"
+            sleep 30
+            continue
         fi
-        
-        # Trigger UI build via CodeBuild with environment variables
-        echo "Starting UI build via CodeBuild..."
-        
-        # Create environment variables override for CodeBuild
-        ENV_VARS_OVERRIDE="[
-          {\"name\": \"USER_POOL_ID\", \"value\": \"$USER_POOL_ID\"},
-          {\"name\": \"USER_POOL_CLIENT_ID\", \"value\": \"$USER_POOL_CLIENT_ID\"},
-          {\"name\": \"REST_API_URL\", \"value\": \"$REST_API_URL\"},
-          {\"name\": \"WEBSOCKET_URL\", \"value\": \"$WEBSOCKET_URL\"}
-        ]"
-        
-        UI_BUILD_ID=$(aws codebuild start-build \
-          --project-name "$UI_BUILD_PROJECT" \
-          --environment-variables-override "$ENV_VARS_OVERRIDE" \
-          --query 'build.id' --output text)
-        
-        if [ "$?" != "0" ] || [ -z "$UI_BUILD_ID" ]; then
-            echo "✗ Could not start UI build project"
-            echo "Falling back to local Docker build..."
-            
-            # Fallback to local build
-            ECR_URI=$(cat ecr-outputs.json | grep -o '"ECRRepositoryUri": "[^"]*"' | cut -d'"' -f4 | head -1)
-            
-            if [ -n "$ECR_URI" ]; then
-                echo "ECR Repository: $ECR_URI"
-                
-                # Navigate to frontend directory
-                cd frontend
-                
-                # Create config.json using the same logic as buildspec
-                echo "Creating environment configuration..."
-                echo "Variables - Region:$deployment_region, UserPoolId:$USER_POOL_ID, ClientId:$USER_POOL_CLIENT_ID, API URL:$REST_API_URL, WebSocket URL:$WEBSOCKET_URL"
-                
-                # Create config directory and remove existing config files
-                mkdir -p src/config
-                rm -f src/config/config.json
-                
-                # Create config.json using jq (same as buildspec)
-                jq -n \
-                  --arg region "$deployment_region" \
-                  --arg userPoolId "$USER_POOL_ID" \
-                  --arg clientId "$USER_POOL_CLIENT_ID" \
-                  --arg apiUrl "$REST_API_URL" \
-                  --arg websocketUrl "$WEBSOCKET_URL" \
-                  '{
-                    region: $region,
-                    userPoolId: $userPoolId,
-                    clientId: $clientId,
-                    apiUrl: $apiUrl,
-                    websocketUrl: $websocketUrl
-                  }' > src/config/config.json
-                
-                echo "Generated config.json:"
-                cat src/config/config.json
-                
-                # Install npm dependencies (same as buildspec)
-                echo "========================================="
-                echo "Installing npm dependencies..."
-                echo "========================================="
-                echo "Clearing npm cache..."
-                npm cache clean --force
-                
-                echo "Setting npm registry to default..."
-                npm config set registry https://registry.npmjs.org/
-                
-                echo "Running npm ci with verbose logging..."
-                if ! npm ci --verbose --no-audit --no-fund; then
-                    echo "npm ci failed, trying with legacy peer deps..."
-                    if ! npm ci --verbose --no-audit --no-fund --legacy-peer-deps; then
-                        echo "npm ci with legacy-peer-deps failed, trying npm install as fallback..."
-                        rm -rf node_modules package-lock.json
-                        npm install --no-audit --no-fund --legacy-peer-deps
-                    fi
-                fi
-                
-                # Build React application
-                echo "========================================="
-                echo "Building React app with Vite..."
-                echo "========================================="
-                npm run build
-                
-                if [ $? -ne 0 ]; then
-                    echo "✗ React build failed"
-                    cd ..
-                    exit 1
-                fi
-                
-                echo "✓ React build completed successfully"
-                echo "Build output size:"
-                du -sh dist
-                ls -la dist
-                
-                # Login to ECR
-                echo "========================================="
-                echo "Logging in to ECR..."
-                echo "========================================="
-                aws ecr get-login-password --region $deployment_region | docker login --username AWS --password-stdin $ECR_URI
-                
-                # Build Docker image
-                echo "========================================="
-                echo "Building Docker image..."
-                echo "========================================="
-                docker build -t document-insight-ui:latest .
-                
-                if [ $? -eq 0 ]; then
-                    echo "✓ Docker image built successfully"
-                    
-                    # Tag and push image
-                    echo "Tagging and pushing image..."
-                    docker tag document-insight-ui:latest $ECR_URI:latest
-                    docker push $ECR_URI:latest
-                    
-                    if [ $? -eq 0 ]; then
-                        echo "✓ Docker image pushed successfully (local build)"
-                    else
-                        echo "✗ Failed to push Docker image"
-                        cd ..
-                        exit 1
-                    fi
-                else
-                    echo "✗ Docker build failed"
-                    cd ..
-                    exit 1
-                fi
-                
-                cd ..
-            else
-                echo "✗ Could not find ECR repository URI"
-                exit 1
-            fi
+
+        status=$(echo $build_info | jq -r '.builds[0].buildStatus // "UNKNOWN"')
+        phase=$(echo $build_info | jq -r '.builds[0].currentPhase // "UNKNOWN"')
+
+        echo "$(date): Status: $status, Phase: $phase"
+
+        if [ "$status" == "SUCCEEDED" ]; then
+            echo "✓ UI build and deployment completed successfully!"
+            break
+        elif [ "$status" == "FAILED" ] || [ "$status" == "STOPPED" ] || [ "$status" == "FAULT" ] || [ "$status" == "TIMED_OUT" ]; then
+            echo "✗ UI build failed with status: $status"
+            ui_build_failed=true
+            break
         else
-            echo "✓ UI build started successfully"
-            echo "Build ID: $UI_BUILD_ID"
-            
-            # Monitor the UI build
-            echo "Monitoring UI build progress..."
-            ui_build_failed=false
-            
-            while true; do
-                # Get build status
-                build_info=$(aws codebuild batch-get-builds --ids $UI_BUILD_ID 2>/dev/null)
-                
-                if [ $? -ne 0 ]; then
-                    echo "⚠ Warning: Could not get UI build status"
-                    sleep 30
-                    continue
-                fi
-                
-                status=$(echo $build_info | jq -r '.builds[0].buildStatus // "UNKNOWN"')
-                phase=$(echo $build_info | jq -r '.builds[0].currentPhase // "UNKNOWN"')
-                
-                echo "$(date): Status: $status, Phase: $phase"
-                
-                if [ "$status" == "SUCCEEDED" ]; then
-                    echo "✓ UI build completed successfully!"
-                    break
-                elif [ "$status" == "FAILED" ] || [ "$status" == "STOPPED" ] || [ "$status" == "FAULT" ] || [ "$status" == "TIMED_OUT" ]; then
-                    echo "✗ UI build failed with status: $status"
-                    ui_build_failed=true
-                    break
-                else
-                    echo "Build is still in progress... sleeping for 30 seconds"
-                fi
-                
-                sleep 30
-            done
-            
-            if [ "$ui_build_failed" = true ]; then
-                echo "⚠ UI build failed - AppRunner may not start properly"
-                echo "Check CodeBuild logs for details"
-            fi
+            echo "Build is still in progress... sleeping for 30 seconds"
         fi
-        
-    else
-        echo "✗ Could not find UI build project name in outputs"
-        echo "Available outputs:"
-        cat ecr-outputs.json | jq 'keys'
+
+        sleep 30
+    done
+
+    if [ "$ui_build_failed" = true ]; then
+        echo "✗ UI build and deployment failed"
+        echo "Check CodeBuild logs for details"
         exit 1
     fi
 else
-    echo "✗ ecr-outputs.json not found"
+    echo "✗ Could not find UI build project name in outputs"
     exit 1
 fi
 
-echo ""
-echo "=========================================="
-echo "Docker Image Ready - Deploying AppRunner"
-echo "=========================================="
-echo ""
-
-echo "--- CDK deploy AppRunner stack ---"
-# Deploy AppRunner stack after Docker image is ready
-cdk deploy --context env=$infra_env \
-  DocumentInsightAppRunner${infra_env^}Stack \
-  --require-approval never --outputs-file apprunner-outputs.json
-
-if [ $? -eq 0 ]; then
-    echo "✓ AppRunner stack deployed successfully"
-    
-    # Merge all outputs into final cdk-outputs.json
-    echo "Merging all stack outputs..."
-    jq -s 'add' core-outputs.json ecr-outputs.json apprunner-outputs.json > cdk-outputs.json
-    
-    # Clean up temporary config file
-    rm -f ui-build-config.json
-    
-    # Trigger AppRunner deployment to ensure it picks up the latest image
-    echo "Triggering AppRunner deployment..."
-    APPRUNNER_SERVICE_ARN=$(cat apprunner-outputs.json | grep -o '"AppRunnerServiceArn": "[^"]*"' | cut -d'"' -f4 | head -1)
-    
-    if [ -n "$APPRUNNER_SERVICE_ARN" ]; then
-        aws apprunner start-deployment --service-arn "$APPRUNNER_SERVICE_ARN" || echo "Note: AppRunner deployment will start automatically"
-        echo "✓ AppRunner deployment triggered"
-    fi
-else
-    echo "✗ AppRunner stack deployment failed"
-    exit 1
-fi
+# Merge all outputs into final cdk-outputs.json
+echo "Merging all stack outputs..."
+jq -s 'add' core-outputs.json cloudfront-outputs.json > cdk-outputs.json
+rm -f ui-build-config.json
 
 echo ""
 echo "=========================================="
@@ -588,13 +434,13 @@ if [ -f "cdk-outputs.json" ]; then
     # Extract key outputs
     REST_API_URL=$(cat cdk-outputs.json | grep -o '"RestApiUrl": "[^"]*"' | cut -d'"' -f4 | head -1)
     WSS_URL=$(cat cdk-outputs.json | grep -o '"WebSocketUrl": "[^"]*"' | cut -d'"' -f4 | head -1)
-    APPRUNNER_URL=$(cat cdk-outputs.json | grep -o '"AppRunnerServiceUrl": "[^"]*"' | cut -d'"' -f4 | head -1)
+    CLOUDFRONT_URL=$(cat cdk-outputs.json | grep -o '"CloudFrontDistributionUrl": "[^"]*"' | cut -d'"' -f4 | head -1)
     USER_POOL_ID=$(cat cdk-outputs.json | grep -o '"UserPoolId": "[^"]*"' | cut -d'"' -f4 | head -1)
     USER_POOL_CLIENT_ID=$(cat cdk-outputs.json | grep -o '"UserPoolClientId": "[^"]*"' | cut -d'"' -f4 | head -1)
     
     [ -n "$REST_API_URL" ] && echo "  REST API URL: $REST_API_URL"
     [ -n "$WSS_URL" ] && echo "  WebSocket URL: $WSS_URL"
-    [ -n "$APPRUNNER_URL" ] && echo "  Frontend URL: $APPRUNNER_URL"
+    [ -n "$CLOUDFRONT_URL" ] && echo "  Frontend URL: $CLOUDFRONT_URL"
     [ -n "$USER_POOL_ID" ] && echo "  User Pool ID: $USER_POOL_ID"
     [ -n "$USER_POOL_CLIENT_ID" ] && echo "  User Pool Client ID: $USER_POOL_CLIENT_ID"
     
@@ -607,7 +453,7 @@ fi
 echo ""
 echo "Next Steps:"
 echo "  1. Create a Cognito user: aws cognito-idp admin-create-user --user-pool-id <USER_POOL_ID> --username <EMAIL>"
-echo "  2. Access the frontend at the AppRunner URL"
+echo "  2. Access the frontend at the CloudFront URL"
 echo "  3. Upload a PDF document and extract insights"
 echo ""
 echo "Deployment Complete"

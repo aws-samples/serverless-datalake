@@ -13,7 +13,7 @@ Stack Dependencies:
 5. WebSocket API Stack (real-time updates)
 6. Lambda Function Stack (processing and extraction)
 7. API Gateway Stack (REST endpoints)
-8. AppRunner Stack (frontend hosting)
+8. CloudFront Stack (frontend hosting)
 """
 import os
 import aws_cdk as cdk
@@ -27,8 +27,7 @@ from infrastructure.processing_status_stack import ProcessingStatusStack
 
 from infrastructure.lambda_function_stack import LambdaFunctionStack
 from infrastructure.api_gateway_stack import ApiGatewayStack
-from infrastructure.ecr_stack import ECRStack
-from infrastructure.apprunner_hosting_stack import AppRunnerHostingStack
+from infrastructure.cloudfront_hosting_stack import CloudFrontHostingStack
 
 # Initialize CDK app
 app = cdk.App()
@@ -199,23 +198,11 @@ api_gateway_stack = ApiGatewayStack(
 )
 
 # ============================================================================
-# STEP 7: Create ECR stack (Docker image repository and build)
+# STEP 7: Create CloudFront hosting stack (frontend)
 # ============================================================================
-ecr_stack = ECRStack(
+cloudfront_stack = CloudFrontHostingStack(
     app,
-    f"DocumentInsightECR{env_name.capitalize()}Stack",
-    env=env,
-    env_name=env_name,
-    config=config,
-    description=f"Document Insight Extraction System - ECR Repository - {env_name} environment"
-)
-
-# ============================================================================
-# STEP 8: Create AppRunner hosting stack (frontend)
-# ============================================================================
-apprunner_stack = AppRunnerHostingStack(
-    app,
-    f"DocumentInsightAppRunner{env_name.capitalize()}Stack",
+    f"DocumentInsightCloudFront{env_name.capitalize()}Stack",
     env=env,
     env_name=env_name,
     config=config,
@@ -223,8 +210,7 @@ apprunner_stack = AppRunnerHostingStack(
     wss_endpoint=websocket_url,
     user_pool_id=cognito_stack.user_pool.user_pool_id,
     user_pool_client_id=cognito_stack.user_pool_client.user_pool_client_id,
-    ecr_repository_uri=ecr_stack.ecr_repository.repository_uri,
-    description=f"Document Insight Extraction System - AppRunner Hosting - {env_name} environment"
+    description=f"Document Insight Extraction System - CloudFront Hosting - {env_name} environment"
 )
 
 # ============================================================================
@@ -242,13 +228,10 @@ lambda_function_stack.add_dependency(processing_status_stack)
 api_gateway_stack.add_dependency(cognito_stack)
 api_gateway_stack.add_dependency(lambda_function_stack)
 
-# ECR stack is independent (no dependencies)
-
-# AppRunner stack depends on API Gateway, Lambda Functions (includes WebSocket), Cognito, and ECR
-apprunner_stack.add_dependency(api_gateway_stack)
-apprunner_stack.add_dependency(lambda_function_stack)
-apprunner_stack.add_dependency(cognito_stack)
-apprunner_stack.add_dependency(ecr_stack)
+# CloudFront stack depends on API Gateway, Lambda Functions (includes WebSocket), and Cognito
+cloudfront_stack.add_dependency(api_gateway_stack)
+cloudfront_stack.add_dependency(lambda_function_stack)
+cloudfront_stack.add_dependency(cognito_stack)
 
 # ============================================================================
 # Apply common tags to all stacks
@@ -261,8 +244,7 @@ all_stacks = [
     processing_status_stack,
     lambda_function_stack,  # Now includes WebSocket API
     api_gateway_stack,
-    ecr_stack,
-    apprunner_stack
+    cloudfront_stack
 ]
 
 for stack in all_stacks:

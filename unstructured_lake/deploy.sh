@@ -114,7 +114,7 @@ echo "  4. DynamoDB Stack (cache)"
 echo "  5. WebSocket API Stack (real-time updates)"
 echo "  6. Lambda Function Stack (processing and extraction)"
 echo "  7. API Gateway Stack (REST endpoints)"
-echo "  8. AppRunner Stack (frontend hosting)"
+echo "  8. CloudFront Stack (frontend hosting)"
 echo ""
 echo "Note: Lambda layers will be built automatically via CodeBuild during deployment"
 echo ""
@@ -134,59 +134,74 @@ fi
 echo ""
 
 # ============================================================================
-# Frontend Docker Image Build and Push
+# Frontend Build and Deploy to S3 + CloudFront
 # ============================================================================
 
-echo "Building and pushing frontend Docker image..."
+echo "Building and deploying frontend to S3 + CloudFront..."
 
-read -p "Build and push UI Docker image? (y/N): " -n 1 -r
+read -p "Build and deploy UI? (y/N): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    # Get ECR repository URI from CDK outputs
     if [ -f "cdk-outputs.json" ]; then
-        ECR_URI=$(cat cdk-outputs.json | grep -o '"ECRRepositoryUri": "[^"]*"' | cut -d'"' -f4 | head -1)
-        
-        if [ -n "$ECR_URI" ]; then
-            echo "  ECR Repository: $ECR_URI"
-            
-            # Login to ECR
-            echo "  Logging in to ECR..."
-            aws ecr get-login-password --region $CDK_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_URI
-            
-            # Build Docker image
-            echo "  Building Docker image..."
+        UI_BUCKET=$(cat cdk-outputs.json | grep -o '"UIBucketName": "[^"]*"' | cut -d'"' -f4 | head -1)
+        DISTRIBUTION_ID=$(cat cdk-outputs.json | grep -o '"CloudFrontDistributionId": "[^"]*"' | cut -d'"' -f4 | head -1)
+        REST_API_URL=$(cat cdk-outputs.json | grep -o '"RestApiUrl": "[^"]*"' | cut -d'"' -f4 | head -1)
+        WEBSOCKET_URL=$(cat cdk-outputs.json | grep -o '"WebSocketUrl": "[^"]*"' | cut -d'"' -f4 | head -1)
+        USER_POOL_ID=$(cat cdk-outputs.json | grep -o '"UserPoolId": "[^"]*"' | cut -d'"' -f4 | head -1)
+        USER_POOL_CLIENT_ID=$(cat cdk-outputs.json | grep -o '"UserPoolClientId": "[^"]*"' | cut -d'"' -f4 | head -1)
+
+        if [ -n "$UI_BUCKET" ] && [ -n "$DISTRIBUTION_ID" ]; then
+            echo "  S3 Bucket: $UI_BUCKET"
+            echo "  Distribution ID: $DISTRIBUTION_ID"
+
             cd frontend
-            docker build -t document-insight-ui:latest .
-            
-            # Tag image
-            echo "  Tagging image..."
-            docker tag document-insight-ui:latest $ECR_URI:latest
-            docker tag document-insight-ui:latest $ECR_URI:$(date +%Y%m%d-%H%M%S)
-            
-            # Push image
-            echo "  Pushing image to ECR..."
-            docker push $ECR_URI:latest
-            docker push $ECR_URI:$(date +%Y%m%d-%H%M%S)
-            
+
+            # Create config.json
+            mkdir -p src/config
+            jq -n \
+              --arg region "$CDK_DEFAULT_REGION" \
+              --arg userPoolId "$USER_POOL_ID" \
+              --arg clientId "$USER_POOL_CLIENT_ID" \
+              --arg apiUrl "$REST_API_URL" \
+              --arg websocketUrl "$WEBSOCKET_URL" \
+              '{
+                region: $region,
+                userPoolId: $userPoolId,
+                clientId: $clientId,
+                apiUrl: $apiUrl,
+                websocketUrl: $websocketUrl
+              }' > src/config/config.json
+
+            echo "  Generated config.json"
+
+            # Install and build
+            echo "  Installing dependencies..."
+            npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund --legacy-peer-deps
+
+            echo "  Building React app..."
+            npm run build
+
+            # Sync to S3
+            echo "  Syncing to S3..."
+            aws s3 sync dist/ s3://$UI_BUCKET/ --delete
+
+            # Invalidate CloudFront
+            echo "  Invalidating CloudFront cache..."
+            aws cloudfront create-invalidation \
+              --distribution-id "$DISTRIBUTION_ID" \
+              --paths "/*" > /dev/null
+
             cd ..
-            
-            echo "✓ Docker image pushed successfully"
-            
-            # Trigger AppRunner deployment
-            echo "  Triggering AppRunner deployment..."
-            APPRUNNER_SERVICE_ARN=$(cat cdk-outputs.json | grep -o '"AppRunnerServiceArn": "[^"]*"' | cut -d'"' -f4 | head -1)
-            
-            if [ -n "$APPRUNNER_SERVICE_ARN" ]; then
-                aws apprunner start-deployment --service-arn "$APPRUNNER_SERVICE_ARN" || echo "  Note: AppRunner deployment will start automatically"
-            fi
+
+            echo "✓ Frontend deployed successfully"
         else
-            echo "  Warning: Could not find ECR repository URI in outputs"
+            echo "  Warning: Could not find UI bucket or distribution ID in outputs"
         fi
     else
         echo "  Warning: cdk-outputs.json not found. Deploy CDK stacks first."
     fi
 else
-    echo "Skipping UI Docker image build"
+    echo "Skipping UI deployment"
 fi
 echo ""
 
@@ -206,13 +221,13 @@ if [ -f "cdk-outputs.json" ]; then
     # Extract key outputs
     REST_API_URL=$(cat cdk-outputs.json | grep -o '"RestApiUrl": "[^"]*"' | cut -d'"' -f4 | head -1)
     WSS_URL=$(cat cdk-outputs.json | grep -o '"WebSocketUrl": "[^"]*"' | cut -d'"' -f4 | head -1)
-    APPRUNNER_URL=$(cat cdk-outputs.json | grep -o '"AppRunnerServiceUrl": "[^"]*"' | cut -d'"' -f4 | head -1)
+    CLOUDFRONT_URL=$(cat cdk-outputs.json | grep -o '"CloudFrontDistributionUrl": "[^"]*"' | cut -d'"' -f4 | head -1)
     USER_POOL_ID=$(cat cdk-outputs.json | grep -o '"UserPoolId": "[^"]*"' | cut -d'"' -f4 | head -1)
     USER_POOL_CLIENT_ID=$(cat cdk-outputs.json | grep -o '"UserPoolClientId": "[^"]*"' | cut -d'"' -f4 | head -1)
     
     [ -n "$REST_API_URL" ] && echo "  REST API URL: $REST_API_URL"
     [ -n "$WSS_URL" ] && echo "  WebSocket URL: $WSS_URL"
-    [ -n "$APPRUNNER_URL" ] && echo "  Frontend URL: $APPRUNNER_URL"
+    [ -n "$CLOUDFRONT_URL" ] && echo "  Frontend URL: $CLOUDFRONT_URL"
     [ -n "$USER_POOL_ID" ] && echo "  User Pool ID: $USER_POOL_ID"
     [ -n "$USER_POOL_CLIENT_ID" ] && echo "  User Pool Client ID: $USER_POOL_CLIENT_ID"
     
@@ -225,7 +240,7 @@ fi
 echo ""
 echo "Next Steps:"
 echo "  1. Create a Cognito user: aws cognito-idp admin-create-user --user-pool-id <USER_POOL_ID> --username <EMAIL>"
-echo "  2. Access the frontend at the AppRunner URL"
+echo "  2. Access the frontend at the CloudFront URL"
 echo "  3. Upload a PDF document and extract insights"
 echo ""
 echo "For more information, see README.md"
