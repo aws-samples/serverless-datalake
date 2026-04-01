@@ -737,6 +737,11 @@ def main():
     )
     print(f"\n{'─' * 70}")
     print("Step Completed: Athena MCP Server deployed to Runtime")
+
+    dockerfile_path = Path(__file__).parent / "Dockerfile"                                                                                                               
+    if dockerfile_path.exists():                                                                                                                                         
+        dockerfile_path.unlink() 
+
     wait_for_user("Deploy S3Vectors MCP Server to Runtime", non_interactive)
     
     # Step 7: Deploy S3Vectors MCP Server to Runtime
