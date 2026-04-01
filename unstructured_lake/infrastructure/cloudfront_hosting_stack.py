@@ -253,16 +253,20 @@ class CloudFrontHostingStack(BaseDocumentInsightStack):
                     value=self.distribution.distribution_id
                 ),
                 "USER_POOL_ID": codebuild.BuildEnvironmentVariable(
-                    value=f"${{resolve:ssm:/{self.project_name}/{self.env_name}/cognito/user-pool-id}}"
+                    value=f"/{self.project_name}/{self.env_name}/cognito/user-pool-id",
+                    type=codebuild.BuildEnvironmentVariableType.PARAMETER_STORE,
                 ),
                 "USER_POOL_CLIENT_ID": codebuild.BuildEnvironmentVariable(
-                    value=f"${{resolve:ssm:/{self.project_name}/{self.env_name}/cognito/user-pool-client-id}}"
+                    value=f"/{self.project_name}/{self.env_name}/cognito/user-pool-client-id",
+                    type=codebuild.BuildEnvironmentVariableType.PARAMETER_STORE,
                 ),
                 "REST_API_URL": codebuild.BuildEnvironmentVariable(
-                    value=f"${{resolve:ssm:/{self.project_name}/{self.env_name}/api/rest-api-url}}"
+                    value=f"/{self.project_name}/{self.env_name}/api/rest-api-url",
+                    type=codebuild.BuildEnvironmentVariableType.PARAMETER_STORE,
                 ),
                 "WEBSOCKET_URL": codebuild.BuildEnvironmentVariable(
-                    value=f"${{resolve:ssm:/{self.project_name}/{self.env_name}/api/websocket-url}}"
+                    value=f"/{self.project_name}/{self.env_name}/api/websocket-url",
+                    type=codebuild.BuildEnvironmentVariableType.PARAMETER_STORE,
                 ),
             },
             cache=codebuild.Cache.local(codebuild.LocalCacheMode.CUSTOM),

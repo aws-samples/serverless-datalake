@@ -14,7 +14,7 @@ phases:
     commands:
       - echo Running builder script...
       - chmod +x builder-nointeractive.sh
-      - ./builder-nointeractive.sh prod
+      - ./builder-nointeractive.sh dev
   
   post_build:
     commands:
