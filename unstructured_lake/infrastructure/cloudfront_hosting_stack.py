@@ -102,6 +102,7 @@ class CloudFrontHostingStack(BaseDocumentInsightStack):
         distribution = cloudfront.Distribution(
             self,
             "UIDistribution",
+            comment="S3Vectors Datalake",
             default_behavior=cloudfront.BehaviorOptions(
                 origin=origins.S3BucketOrigin.with_origin_access_control(self.ui_bucket),
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
