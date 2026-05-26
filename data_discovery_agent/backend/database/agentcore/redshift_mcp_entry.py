@@ -10,16 +10,14 @@ Environment Variables:
 """
 
 import os
-import sys
 
 # Set default environment variables for the Redshift MCP server
 os.environ.setdefault("REDSHIFT_WORKGROUP", "workshop-redshift-wg")
 os.environ.setdefault("REDSHIFT_DATABASE", "analytics_db")
 os.environ.setdefault("READONLY", "true")
 
-# The awslabs.redshift-mcp-server package provides the MCP server implementation.
-# Import and run it directly.
-from awslabs.redshift_mcp_server.__main__ import main
+# The console_scripts entry point is: awslabs.redshift_mcp_server.server:main
+from awslabs.redshift_mcp_server.server import main
 
 if __name__ == "__main__":
     main()
