@@ -396,6 +396,10 @@ def deploy_mcp_server_to_runtime(mcp_file, agent_name, runtime_role_arn, runtime
             "agent_url": agent_url
         }
     finally:
+        # Clean up auto-generated Dockerfile
+        dockerfile_path = script_dir / "Dockerfile"
+        if dockerfile_path.exists():
+            dockerfile_path.unlink()
         os.chdir(original_dir)
 
 
@@ -678,12 +682,6 @@ def main():
     )
     print(f"\n{'=' * 70}")
     print("Step Completed: Redshift MCP Server deployed to Runtime")
-
-    # Clean up Dockerfile if auto-generated
-    dockerfile_path = Path(__file__).parent / "Dockerfile"
-    if dockerfile_path.exists():
-        dockerfile_path.unlink()
-
     wait_for_user("Deploy S3Vectors MCP Server to Runtime", non_interactive)
 
     # Step 7: Deploy S3Vectors MCP Server to Runtime
