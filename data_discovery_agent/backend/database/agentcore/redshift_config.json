@@ -1,0 +1,4 @@
+{
+    "REDSHIFT_WORKGROUP": "workshop-redshift-wg",
+    "REDSHIFT_DATABASE": "analytics_db"
+}
