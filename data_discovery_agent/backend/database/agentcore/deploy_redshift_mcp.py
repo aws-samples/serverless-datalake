@@ -51,7 +51,7 @@ RT_RESOURCE_SERVER_NAME = "redshift-lakehouse-runtime-name"
 RT_CLIENT_NAME = "redshift-lakehouse-runtime-client"
 
 # MCP Server Deployments
-REDSHIFT_MCP_FILE = "redshift_mcp_entry.py"
+REDSHIFT_MCP_CONTAINER_IMAGE = "public.ecr.aws/awslabs-mcp/awslabs/redshift-mcp-server:sha-5d56583f8c4841d9310e82483f53288745b9f35b"
 REDSHIFT_AGENT_NAME = "redshift_mcp_server"
 S3VECTORS_MCP_FILE = "s3vectors_mcp.py"
 S3VECTORS_AGENT_NAME = "s3vectors_mcp_server_lakehouse"
@@ -317,6 +317,124 @@ def create_agentcore_gateway(gateway_role_arn, gw_cognito_config):
         }
     except Exception as e:
         print(f"Error with Gateway: {e}")
+        sys.exit(1)
+
+
+def deploy_redshift_mcp_container(agent_name, runtime_role_arn, runtime_cognito_config, env_vars=None):
+    """
+    Deploy Redshift MCP server using pre-built container image via boto3 create_agent_runtime API.
+
+    Args:
+        agent_name: Name for the agent runtime
+        runtime_role_arn: ARN of the IAM role for Runtime execution
+        runtime_cognito_config: Runtime Cognito configuration
+        env_vars: Optional environment variables to set
+
+    Returns:
+        Dictionary with agent_arn, agent_id, and agent_url
+    """
+    print(f"\nDeploying Redshift MCP (container) to AgentCore Runtime...")
+    print(f"   Image: {REDSHIFT_MCP_CONTAINER_IMAGE}")
+
+    agentcore_client = boto3.client('bedrock-agentcore-control', region_name=REGION)
+
+    # Check if agent runtime already exists
+    try:
+        list_response = agentcore_client.list_agent_runtimes()
+        runtimes = list_response.get('runtimeSummaries', [])
+
+        for runtime in runtimes:
+            if runtime.get('agentRuntimeName') == agent_name:
+                agent_arn = runtime.get('agentRuntimeArn')
+                agent_id = runtime.get('agentRuntimeId')
+                encoded_arn = agent_arn.replace(':', '%3A').replace('/', '%2F')
+                agent_url = f'https://bedrock-agentcore.{REGION}.amazonaws.com/runtimes/{encoded_arn}/invocations?qualifier=DEFAULT'
+                print(f"  Using existing Redshift MCP runtime")
+                print(f"   Agent ARN: {agent_arn}")
+                print(f"   Agent URL: {agent_url}")
+                return {
+                    "agent_arn": agent_arn,
+                    "agent_id": agent_id,
+                    "agent_url": agent_url
+                }
+    except Exception as list_error:
+        print(f"   Could not list runtimes: {list_error}")
+
+    # Create the agent runtime with container image
+    print(f"   Creating agent runtime '{agent_name}'...")
+
+    create_params = {
+        'agentRuntimeName': agent_name,
+        'agentRuntimeArtifact': {
+            'containerConfiguration': {
+                'containerUri': REDSHIFT_MCP_CONTAINER_IMAGE
+            }
+        },
+        'roleArn': runtime_role_arn,
+        'networkConfiguration': {
+            'networkMode': 'PUBLIC'
+        },
+        'protocolConfiguration': {
+            'serverProtocol': 'MCP'
+        },
+        'authorizerConfiguration': {
+            'customJWTAuthorizer': {
+                'allowedClients': [runtime_cognito_config["client_id"]],
+                'discoveryUrl': runtime_cognito_config["discovery_url"]
+            }
+        },
+        'description': 'Redshift MCP Server (awslabs) - read-only query access to Redshift Serverless'
+    }
+
+    if env_vars:
+        create_params['environmentVariables'] = env_vars
+
+    try:
+        response = agentcore_client.create_agent_runtime(**create_params)
+
+        agent_arn = response['agentRuntimeArn']
+        agent_id = response['agentRuntimeId']
+        status = response.get('status', 'CREATING')
+
+        encoded_arn = agent_arn.replace(':', '%3A').replace('/', '%2F')
+        agent_url = f'https://bedrock-agentcore.{REGION}.amazonaws.com/runtimes/{encoded_arn}/invocations?qualifier=DEFAULT'
+
+        print(f"  Redshift MCP runtime created (status: {status})")
+        print(f"   Agent ARN: {agent_arn}")
+        print(f"   Agent ID: {agent_id}")
+        print(f"   Agent URL: {agent_url}")
+
+        # Wait for runtime to be READY
+        if status == 'CREATING':
+            print("   Waiting for runtime to become READY...")
+            import time
+            for i in range(60):  # Wait up to 5 minutes
+                time.sleep(5)
+                try:
+                    get_response = agentcore_client.get_agent_runtime(agentRuntimeId=agent_id)
+                    current_status = get_response.get('status', 'UNKNOWN')
+                    if current_status == 'READY':
+                        print(f"   Runtime is READY")
+                        break
+                    elif current_status in ('CREATE_FAILED', 'UPDATE_FAILED'):
+                        print(f"   Runtime failed: {current_status}")
+                        print(f"   Details: {get_response.get('statusReason', 'N/A')}")
+                        sys.exit(1)
+                    else:
+                        if i % 6 == 0:  # Print every 30s
+                            print(f"   Still waiting... (status: {current_status})")
+                except Exception as e:
+                    print(f"   Error checking status: {e}")
+            else:
+                print("   Warning: Timed out waiting for READY status. Continuing...")
+
+        return {
+            "agent_arn": agent_arn,
+            "agent_id": agent_id,
+            "agent_url": agent_url
+        }
+    except Exception as e:
+        print(f"Error creating Redshift MCP runtime: {e}")
         sys.exit(1)
 
 
@@ -683,7 +801,7 @@ def main():
     print("Step Completed: AgentCore Gateway created")
     wait_for_user("Deploy Redshift MCP Server to Runtime", non_interactive)
 
-    # Step 6: Deploy Redshift MCP Server to Runtime
+    # Step 6: Deploy Redshift MCP Server to Runtime (pre-built container via boto3)
     redshift_env_vars = {
         "REDSHIFT_WORKGROUP": os.environ.get("REDSHIFT_WORKGROUP") or config.get("REDSHIFT_WORKGROUP", "workshop-redshift-wg"),
         "REDSHIFT_DATABASE": os.environ.get("REDSHIFT_DATABASE") or config.get("REDSHIFT_DATABASE", "analytics_db"),
@@ -692,12 +810,10 @@ def main():
     print(f"   Using REDSHIFT_WORKGROUP: {redshift_env_vars['REDSHIFT_WORKGROUP']}")
     print(f"   Using REDSHIFT_DATABASE: {redshift_env_vars['REDSHIFT_DATABASE']}")
 
-    redshift_agent = deploy_mcp_server_to_runtime(
-        mcp_file=REDSHIFT_MCP_FILE,
+    redshift_agent = deploy_redshift_mcp_container(
         agent_name=REDSHIFT_AGENT_NAME,
         runtime_role_arn=runtime_role_arn,
         runtime_cognito_config=runtime_cognito_config,
-        config=config,
         env_vars=redshift_env_vars
     )
     print(f"\n{'=' * 70}")
