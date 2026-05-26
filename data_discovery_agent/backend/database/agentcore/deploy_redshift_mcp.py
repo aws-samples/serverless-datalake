@@ -625,6 +625,12 @@ def main():
         print("   Mode: Interactive (Step-by-Step)")
     print("=" * 70)
 
+    # Clean up any leftover Dockerfile from previous deploy_agent.py runs
+    leftover_dockerfile = Path(__file__).parent / "Dockerfile"
+    if leftover_dockerfile.exists():
+        leftover_dockerfile.unlink()
+        print("   Cleaned up leftover Dockerfile from previous deployment")
+
     # Display architecture diagram
     display_architecture_diagram(non_interactive)
 
