@@ -1482,6 +1482,33 @@ def create_agentcore_runtime_role_with_data_permissions(agent_name):
                 "Resource": "*"
             },
             {
+                "Sid": "RedshiftDataAPI",
+                "Effect": "Allow",
+                "Action": [
+                    "redshift-data:ExecuteStatement",
+                    "redshift-data:DescribeStatement",
+                    "redshift-data:GetStatementResult",
+                    "redshift-data:ListStatements",
+                    "redshift-data:CancelStatement",
+                    "redshift-data:DescribeTable",
+                    "redshift-data:ListDatabases",
+                    "redshift-data:ListSchemas",
+                    "redshift-data:ListTables",
+                    "redshift-data:BatchExecuteStatement"
+                ],
+                "Resource": "*"
+            },
+            {
+                "Sid": "RedshiftServerlessCredentials",
+                "Effect": "Allow",
+                "Action": [
+                    "redshift-serverless:GetCredentials",
+                    "redshift-serverless:GetWorkgroup",
+                    "redshift-serverless:GetNamespace"
+                ],
+                "Resource": "*"
+            },
+            {
                 "Sid": "LambdaInvoke",
                 "Effect": "Allow",
                 "Resource": "*",
