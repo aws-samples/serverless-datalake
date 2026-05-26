@@ -51,7 +51,7 @@ RT_RESOURCE_SERVER_NAME = "redshift-lakehouse-runtime-name"
 RT_CLIENT_NAME = "redshift-lakehouse-runtime-client"
 
 # MCP Server Deployments
-REDSHIFT_MCP_FILE = "redshift_mcp_entry.py"
+REDSHIFT_MCP_CONTAINER_IMAGE = "public.ecr.aws/awslabs-mcp/awslabs/redshift-mcp-server:sha-5d56583f8c4841d9310e82483f53288745b9f35b"
 REDSHIFT_AGENT_NAME = "redshift_mcp_server"
 S3VECTORS_MCP_FILE = "s3vectors_mcp.py"
 S3VECTORS_AGENT_NAME = "s3vectors_mcp_server_lakehouse"
@@ -320,12 +320,82 @@ def create_agentcore_gateway(gateway_role_arn, gw_cognito_config):
         sys.exit(1)
 
 
-def deploy_mcp_server_to_runtime(mcp_file, agent_name, runtime_role_arn, runtime_cognito_config, config, env_vars=None):
+def deploy_redshift_mcp_container(agent_name, runtime_role_arn, runtime_cognito_config, env_vars=None):
     """
-    Deploy an MCP server to AgentCore Runtime.
+    Deploy the Redshift MCP server using the pre-built container image from ECR Public.
 
     Args:
-        mcp_file: Name of the MCP server file (e.g., 'redshift_mcp_entry.py')
+        agent_name: Name for the agent
+        runtime_role_arn: ARN of the IAM role for Runtime execution
+        runtime_cognito_config: Runtime Cognito configuration
+        env_vars: Optional environment variables to set
+
+    Returns:
+        Dictionary with agent_arn, agent_id, and agent_url
+    """
+    print(f"\nDeploying Redshift MCP (container image) to AgentCore Runtime...")
+    print(f"   Image: {REDSHIFT_MCP_CONTAINER_IMAGE}")
+
+    script_dir = Path(__file__).parent
+    original_dir = os.getcwd()
+    os.chdir(script_dir)
+
+    try:
+        agentcore_runtime = Runtime()
+
+        auth_config = {
+            "customJWTAuthorizer": {
+                "allowedClients": [runtime_cognito_config["client_id"]],
+                "discoveryUrl": runtime_cognito_config["discovery_url"]
+            }
+        }
+
+        print("   Configuring AgentCore Runtime with container image...")
+        print(f"   Using Runtime execution role: {runtime_role_arn}")
+        response = agentcore_runtime.configure(
+            container_image=REDSHIFT_MCP_CONTAINER_IMAGE,
+            execution_role=runtime_role_arn,
+            non_interactive=True,
+            region=REGION,
+            authorizer_configuration=auth_config,
+            protocol="MCP",
+            agent_name=agent_name,
+        )
+        print("   Configuration completed")
+
+        print("   Launching Redshift MCP server to AgentCore Runtime...")
+        print("   This may take several minutes...")
+        launch_result = agentcore_runtime.launch(auto_update_on_conflict=True, env_vars=env_vars)
+
+        agent_arn = launch_result.agent_arn
+        agent_id = launch_result.agent_id
+
+        encoded_arn = agent_arn.replace(':', '%3A').replace('/', '%2F')
+        agent_url = f'https://bedrock-agentcore.{REGION}.amazonaws.com/runtimes/{encoded_arn}/invocations?qualifier=DEFAULT'
+
+        print(f"  Redshift MCP deployed successfully")
+        print(f"   Agent ARN: {agent_arn}")
+        print(f"   Agent ID: {agent_id}")
+        print(f"   Agent URL: {agent_url}")
+
+        return {
+            "agent_arn": agent_arn,
+            "agent_id": agent_id,
+            "agent_url": agent_url
+        }
+    finally:
+        dockerfile_path = script_dir / "Dockerfile"
+        if dockerfile_path.exists():
+            dockerfile_path.unlink()
+        os.chdir(original_dir)
+
+
+def deploy_mcp_server_to_runtime(mcp_file, agent_name, runtime_role_arn, runtime_cognito_config, config, env_vars=None):
+    """
+    Deploy an MCP server to AgentCore Runtime (from source file).
+
+    Args:
+        mcp_file: Name of the MCP server file (e.g., 's3vectors_mcp.py')
         agent_name: Name for the agent
         runtime_role_arn: ARN of the IAM role for Runtime execution
         runtime_cognito_config: Runtime Cognito configuration
@@ -339,7 +409,7 @@ def deploy_mcp_server_to_runtime(mcp_file, agent_name, runtime_role_arn, runtime
 
     script_dir = Path(__file__).parent
 
-    required_files = [mcp_file, 'redshift_mcp_requirements.txt']
+    required_files = [mcp_file, 'requirements.txt']
     for file in required_files:
         file_path = script_dir / file
         if not file_path.exists():
@@ -366,7 +436,7 @@ def deploy_mcp_server_to_runtime(mcp_file, agent_name, runtime_role_arn, runtime
             entrypoint=mcp_file,
             execution_role=runtime_role_arn,
             auto_create_ecr=True,
-            requirements_file="redshift_mcp_requirements.txt",
+            requirements_file="requirements.txt",
             non_interactive=True,
             region=REGION,
             authorizer_configuration=auth_config,
@@ -396,7 +466,6 @@ def deploy_mcp_server_to_runtime(mcp_file, agent_name, runtime_role_arn, runtime
             "agent_url": agent_url
         }
     finally:
-        # Clean up auto-generated Dockerfile
         dockerfile_path = script_dir / "Dockerfile"
         if dockerfile_path.exists():
             dockerfile_path.unlink()
@@ -684,7 +753,7 @@ def main():
     print("Step Completed: AgentCore Gateway created")
     wait_for_user("Deploy Redshift MCP Server to Runtime", non_interactive)
 
-    # Step 6: Deploy Redshift MCP Server to Runtime
+    # Step 6: Deploy Redshift MCP Server to Runtime (pre-built container from ECR Public)
     redshift_env_vars = {
         "REDSHIFT_WORKGROUP": os.environ.get("REDSHIFT_WORKGROUP") or config.get("REDSHIFT_WORKGROUP", "workshop-redshift-wg"),
         "REDSHIFT_DATABASE": os.environ.get("REDSHIFT_DATABASE") or config.get("REDSHIFT_DATABASE", "analytics_db"),
@@ -693,12 +762,10 @@ def main():
     print(f"   Using REDSHIFT_WORKGROUP: {redshift_env_vars['REDSHIFT_WORKGROUP']}")
     print(f"   Using REDSHIFT_DATABASE: {redshift_env_vars['REDSHIFT_DATABASE']}")
 
-    redshift_agent = deploy_mcp_server_to_runtime(
-        mcp_file=REDSHIFT_MCP_FILE,
+    redshift_agent = deploy_redshift_mcp_container(
         agent_name=REDSHIFT_AGENT_NAME,
         runtime_role_arn=runtime_role_arn,
         runtime_cognito_config=runtime_cognito_config,
-        config=config,
         env_vars=redshift_env_vars
     )
     print(f"\n{'=' * 70}")
