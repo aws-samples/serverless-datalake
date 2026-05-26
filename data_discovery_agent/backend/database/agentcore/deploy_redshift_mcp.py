@@ -404,12 +404,27 @@ def deploy_mcp_server_to_runtime(mcp_file, agent_name, runtime_role_arn, runtime
 
 
 def create_oauth_credential_provider(runtime_cognito_config):
-    """Create AgentCore Identity OAuth credential provider for outbound auth."""
-    print("\nCreating OAuth credential provider for Gateway outbound auth...")
+    """Create or get existing AgentCore Identity OAuth credential provider for outbound auth."""
+    print("\nCreating/Getting OAuth credential provider for Gateway outbound auth...")
 
     try:
         identity_client = boto3.client('bedrock-agentcore-control', region_name=REGION)
 
+        # Check if credential provider already exists
+        try:
+            list_response = identity_client.list_oauth2_credential_providers()
+            providers = list_response.get('credentialProviders', [])
+
+            for provider in providers:
+                if provider.get('name') == OAUTH_CREDENTIAL_PROVIDER_NAME:
+                    cognito_provider_arn = provider.get('credentialProviderArn')
+                    print(f"  Using existing OAuth credential provider")
+                    print(f"   Provider ARN: {cognito_provider_arn}")
+                    return cognito_provider_arn
+        except Exception as list_error:
+            print(f"   Could not list credential providers: {list_error}")
+
+        # Create new credential provider
         cognito_provider = identity_client.create_oauth2_credential_provider(
             name=OAUTH_CREDENTIAL_PROVIDER_NAME,
             credentialProviderVendor="CustomOauth2",
