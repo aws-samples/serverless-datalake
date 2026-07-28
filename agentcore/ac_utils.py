@@ -151,7 +151,7 @@ def get_or_create_m2m_client(cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER
         UserPoolId=user_pool_id,
         ClientName=CLIENT_NAME,
         GenerateSecret=True,
-        AllowedOAuthFlows=["client_credentials", "code"],
+        AllowedOAuthFlows=["client_credentials"],
         AllowedOAuthScopes=SCOPES,
         AllowedOAuthFlowsUserPoolClient=True,
         SupportedIdentityProviders=["COGNITO"],
