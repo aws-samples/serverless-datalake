@@ -186,8 +186,7 @@ def create_cognito_pool_for_gateway():
         print("   Resource server ensured")
 
         gw_client_id, gw_client_secret = utils.get_or_create_m2m_client(
-            cognito, gw_user_pool_id, GW_CLIENT_NAME, GW_RESOURCE_SERVER_ID, scope_names,
-            oauth_flow="code"
+            cognito, gw_user_pool_id, GW_CLIENT_NAME, GW_RESOURCE_SERVER_ID, scope_names
         )
 
         gw_cognito_discovery_url = f'https://cognito-idp.{REGION}.amazonaws.com/{gw_user_pool_id}/.well-known/openid-configuration'
@@ -761,12 +760,10 @@ def main():
     user_pool_id = gw_cognito_config['user_pool_id']
     user_pool_id_lowercase = user_pool_id.lower().replace('_', '')
     token_url = f"https://{user_pool_id_lowercase}.auth.{REGION}.amazoncognito.com/oauth2/token"
-    authorize_url = f"https://{user_pool_id_lowercase}.auth.{REGION}.amazoncognito.com/oauth2/authorize"
 
     print(f"\nGateway ID: {gateway_info['gateway_id']}")
     print(f"Gateway URL: {gateway_info['gateway_url']}")
     print(f"Cognito Token URL: {token_url}")
-    print(f"Cognito Authorize URL: {authorize_url}")
     print(f"Client ID: {gw_cognito_config['client_id']}")
     print(f"Client Secret: {gw_cognito_config['client_secret']}")
     print("\n" + "=" * 70)
@@ -776,8 +773,6 @@ def main():
         "gateway": gateway_info,
         "gateway_role_arn": gateway_role_arn,
         "runtime_role_arn": runtime_role_arn,
-        "token_url": token_url,
-        "authorize_url": authorize_url,
         "gateway_auth": {
             "client_id": gw_cognito_config["client_id"],
             "client_secret": gw_cognito_config["client_secret"],
