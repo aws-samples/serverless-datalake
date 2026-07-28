@@ -155,10 +155,7 @@ def get_or_create_m2m_client(cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER
         AllowedOAuthScopes=SCOPES,
         AllowedOAuthFlowsUserPoolClient=True,
         SupportedIdentityProviders=["COGNITO"],
-        ExplicitAuthFlows=["ALLOW_REFRESH_TOKEN_AUTH"],
-        CallbackURLs=[                                          
-        "https://us-east-1.quicksight.aws.amazon.com/sn/oauthcallback"
-        ]
+        ExplicitAuthFlows=["ALLOW_REFRESH_TOKEN_AUTH"]
     )
     return created["UserPoolClient"]["ClientId"], created["UserPoolClient"]["ClientSecret"]
 
