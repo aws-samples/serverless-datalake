@@ -195,7 +195,8 @@ def create_cognito_pool_for_gateway():
 
         # Create or retrieve M2M client (utils function already handles this)
         gw_client_id, gw_client_secret = utils.get_or_create_m2m_client(
-            cognito, gw_user_pool_id, GW_CLIENT_NAME, GW_RESOURCE_SERVER_ID, scope_names
+            cognito, gw_user_pool_id, GW_CLIENT_NAME, GW_RESOURCE_SERVER_ID, scope_names,
+            oauth_flow="code"
         )
         
         # Get discovery URL
