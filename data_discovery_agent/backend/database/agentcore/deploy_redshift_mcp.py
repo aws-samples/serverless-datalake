@@ -760,10 +760,12 @@ def main():
     user_pool_id = gw_cognito_config['user_pool_id']
     user_pool_id_lowercase = user_pool_id.lower().replace('_', '')
     token_url = f"https://{user_pool_id_lowercase}.auth.{REGION}.amazoncognito.com/oauth2/token"
+    authorize_url = f"https://{user_pool_id_lowercase}.auth.{REGION}.amazoncognito.com/oauth2/authorize"
 
     print(f"\nGateway ID: {gateway_info['gateway_id']}")
     print(f"Gateway URL: {gateway_info['gateway_url']}")
     print(f"Cognito Token URL: {token_url}")
+    print(f"Cognito Authorize URL: {authorize_url}")
     print(f"Client ID: {gw_cognito_config['client_id']}")
     print(f"Client Secret: {gw_cognito_config['client_secret']}")
     print("\n" + "=" * 70)
@@ -773,6 +775,8 @@ def main():
         "gateway": gateway_info,
         "gateway_role_arn": gateway_role_arn,
         "runtime_role_arn": runtime_role_arn,
+        "token_url": token_url,
+        "authorize_url": authorize_url,
         "gateway_auth": {
             "client_id": gw_cognito_config["client_id"],
             "client_secret": gw_cognito_config["client_secret"],
