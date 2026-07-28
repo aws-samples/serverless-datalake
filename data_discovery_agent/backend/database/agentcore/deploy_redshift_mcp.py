@@ -186,7 +186,8 @@ def create_cognito_pool_for_gateway():
         print("   Resource server ensured")
 
         gw_client_id, gw_client_secret = utils.get_or_create_m2m_client(
-            cognito, gw_user_pool_id, GW_CLIENT_NAME, GW_RESOURCE_SERVER_ID, scope_names
+            cognito, gw_user_pool_id, GW_CLIENT_NAME, GW_RESOURCE_SERVER_ID, scope_names,
+            oauth_flow="code"
         )
 
         gw_cognito_discovery_url = f'https://cognito-idp.{REGION}.amazonaws.com/{gw_user_pool_id}/.well-known/openid-configuration'

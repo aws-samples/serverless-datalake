@@ -135,33 +135,43 @@ def get_or_create_resource_server(cognito, user_pool_id, RESOURCE_SERVER_ID, RES
         )
         return RESOURCE_SERVER_ID
 
-def get_or_create_m2m_client(cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER_ID, SCOPES=None):
+def get_or_create_m2m_client(cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER_ID, SCOPES=None, oauth_flow="client_credentials"):
     # Default scopes if not provided (for backward compatibility)
     if SCOPES is None:
         SCOPES = [f"{RESOURCE_SERVER_ID}/gateway:read", f"{RESOURCE_SERVER_ID}/gateway:write"]
 
-    # Support BOTH auth modes Amazon Quick can pick:
-    #   - client_credentials -> Service-to-service auth (custom resource-server scopes only)
-    #   - code               -> User auth (authorization-code flow, needs OIDC scopes)
-    # Cognito returns OAuth "unauthorized_client" if the flow Quick uses isn't listed here.
-    oauth_scopes = list(dict.fromkeys(["openid", "email", "profile"] + list(SCOPES)))
-
-    client_settings = dict(
-        AllowedOAuthFlows=["code", "client_credentials"],
-        AllowedOAuthScopes=oauth_scopes,
-        AllowedOAuthFlowsUserPoolClient=True,
-        SupportedIdentityProviders=["COGNITO"],
-        ExplicitAuthFlows=["ALLOW_REFRESH_TOKEN_AUTH"],
-        CallbackURLs=[
-            "https://us-east-1.quicksight.aws.amazon.com/sn/oauthcallback"
-        ],
-    )
+    # Cognito does NOT allow "code" and "client_credentials" on the same app client.
+    #   - Gateway inbound (Amazon Quick): Quick detects OAuth DCR and defaults to
+    #     User auth, i.e. the authorization-code ("code") flow. It needs the OIDC
+    #     scopes + callback URL. Wrong flow -> OAuth "unauthorized_client".
+    #   - Runtime outbound (Gateway -> Runtime credential provider): uses the
+    #     machine-to-machine "client_credentials" flow with custom scopes only.
+    if oauth_flow == "code":
+        oauth_scopes = list(dict.fromkeys(["openid", "email", "profile"] + list(SCOPES)))
+        client_settings = dict(
+            AllowedOAuthFlows=["code"],
+            AllowedOAuthScopes=oauth_scopes,
+            AllowedOAuthFlowsUserPoolClient=True,
+            SupportedIdentityProviders=["COGNITO"],
+            ExplicitAuthFlows=["ALLOW_REFRESH_TOKEN_AUTH"],
+            CallbackURLs=[
+                "https://us-east-1.quicksight.aws.amazon.com/sn/oauthcallback"
+            ],
+        )
+    else:
+        client_settings = dict(
+            AllowedOAuthFlows=["client_credentials"],
+            AllowedOAuthScopes=list(SCOPES),
+            AllowedOAuthFlowsUserPoolClient=True,
+            SupportedIdentityProviders=["COGNITO"],
+            ExplicitAuthFlows=["ALLOW_REFRESH_TOKEN_AUTH"],
+        )
 
     response = cognito.list_user_pool_clients(UserPoolId=user_pool_id, MaxResults=60)
     for client in response["UserPoolClients"]:
         if client["ClientName"] == CLIENT_NAME:
             client_id = client["ClientId"]
-            print(f'updating existing m2m client {client_id} with code + client_credentials flows')
+            print(f'updating existing client {client_id} with {oauth_flow} flow')
             cognito.update_user_pool_client(
                 UserPoolId=user_pool_id,
                 ClientId=client_id,
@@ -171,7 +181,7 @@ def get_or_create_m2m_client(cognito, user_pool_id, CLIENT_NAME, RESOURCE_SERVER
             describe = cognito.describe_user_pool_client(UserPoolId=user_pool_id, ClientId=client_id)
             return client_id, describe["UserPoolClient"]["ClientSecret"]
 
-    print('creating new m2m client')
+    print(f'creating new client with {oauth_flow} flow')
     created = cognito.create_user_pool_client(
         UserPoolId=user_pool_id,
         ClientName=CLIENT_NAME,
